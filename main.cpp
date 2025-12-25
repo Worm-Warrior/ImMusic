@@ -60,7 +60,8 @@ static const char *file_type_string(const std::filesystem::directory_entry &e) {
         return "Folder";
     }
     if (e.is_regular_file()) {
-        std::string file_string = e.path().string().substr(e.path().string().find_last_of('.')+1, e.path().string().length());
+        std::string file_string = e.path().string().substr(e.path().string().find_last_of('.') + 1,
+                                                           e.path().string().length());
         return file_string.c_str();
     }
 
@@ -81,7 +82,9 @@ void build_fs_tree(std::filesystem::path path, ImGuiTreeNodeFlags base) {
                 | ImGuiTreeNodeFlags_NoTreePushOnOpen;
     }
     std::string name = path.filename().string();
+    // Root node case, we want it to be open, but the subfolders should NOT open by default!
     if (name.empty()) {
+        node_flags |= ImGuiTreeNodeFlags_DefaultOpen;
         name = path.string();
     }
     bool open = ImGui::TreeNodeEx(name.c_str(), node_flags);
@@ -90,7 +93,7 @@ void build_fs_tree(std::filesystem::path path, ImGuiTreeNodeFlags base) {
     if (is_folder) {
         ImGui::TextDisabled("--");
     } else {
-        ImGui::Text("%.2lf MB", (double)std::filesystem::file_size(path) * 0.000001);
+        ImGui::Text("%.2lf MB", (double) std::filesystem::file_size(path) * 0.000001);
     }
 
     ImGui::TableNextColumn();
@@ -259,14 +262,13 @@ int main(int, char **) {
 
         // Our own simple window
         {
-            ImGui::Begin("File System", &show_file_system_window);
+            ImGui::Begin("Local File System", &show_file_system_window);
             static ImGuiTableFlags table_flags =
                     ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
                     ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
 
             static ImGuiTreeNodeFlags tree_node_flags_base =
-                    ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_DefaultOpen |
-                    ImGuiTreeNodeFlags_DrawLinesFull;
+                    ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_DrawLinesFull;
 
 
             if (ImGui::BeginTable("file_system", 3, table_flags)) {
