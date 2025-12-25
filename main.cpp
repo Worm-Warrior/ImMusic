@@ -20,6 +20,7 @@
 // Link : https://github.com/ocornut/imgui/blob/master/examples/example_sdl3_opengl3/main.cpp
 
 // This makes it so that the whole window is one big dock space so we get the windows to act the way we want.
+// ? Should I move this to another file or is it fine here?
 void draw_dockspace() {
     ImGuiWindowFlags flags =
             ImGuiWindowFlags_NoDocking |
@@ -48,13 +49,9 @@ void draw_dockspace() {
     ImGui::PopStyleVar(3);
 }
 
-void parse_file_system(std::string root_dir) {
-    for (const auto &entry: std::filesystem::recursive_directory_iterator(root_dir)) {
-        if (entry.is_directory())
-            std::printf("Parsed : %s\n", entry.path().string().c_str());
-    }
-}
+// TODO: Move this stuff to its own system_file header / cpp file
 
+// * === FILE SYSTEM PARSING ===
 static const char *file_type_string(const std::filesystem::directory_entry &e) {
     if (e.is_directory()) {
         return "Folder";
@@ -107,6 +104,7 @@ void build_fs_tree(std::filesystem::path path, ImGuiTreeNodeFlags base) {
     }
 }
 
+// * === ENTRY POINT ===
 int main(int, char **) {
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_AUDIO)) {
         printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
@@ -114,7 +112,7 @@ int main(int, char **) {
     }
 
 
-    // Decide GL+GLSL versions
+    // * Decide GL+GLSL versions based on platform
 #if defined(IMGUI_IMPL_OPENGL_ES2)
     // GL ES 2.0 + GLSL 100 (WebGL 1.0)
     const char *glsl_version = "#version 100";
@@ -221,10 +219,7 @@ int main(int, char **) {
     app_state_t app_state;
     app_state.is_running = true;
 
-    // See if this works.
-    parse_file_system("/home/harry/Music");
-
-    // MAIN LOOP
+    // * === MAIN LOOP ===
     while (app_state.is_running) {
         SDL_Event event;
         // Quit logic from SDL
