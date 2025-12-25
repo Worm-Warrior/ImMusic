@@ -20,6 +20,8 @@ add_executable(ImMusic
         ${IMGUI_DIR}/imgui_widgets.cpp
         ${IMGUI_DIR}/imgui_impl_sdl3.cpp
         ${IMGUI_DIR}/imgui_impl_opengl3.cpp
+        app_state.h
+        file_system_node.h
 )
 
 target_include_directories(ImMusic PRIVATE

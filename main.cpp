@@ -3,20 +3,23 @@
 #include "include/imgui_impl_sdl3.h"
 #include "include/imgui_impl_opengl3.h"
 #include <SDL3/SDL_surface.h>
-#include <stdio.h>
+#include <cstdio>
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
 
+#include "app_state.h"
 #include "imgui_internal.h"
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 #include <SDL3/SDL_opengles2.h>
 #else
 #include <SDL3/SDL_opengl.h>
 #endif
+#include <filesystem>
 
 // A lot of code taken from the Dear ImGui example for SDL3+opengl3
 // Link : https://github.com/ocornut/imgui/blob/master/examples/example_sdl3_opengl3/main.cpp
 
+// This makes it so that the whole window is one big dock space so we get the windows to act the way we want.
 void draw_dockspace() {
     ImGuiWindowFlags flags =
             ImGuiWindowFlags_NoDocking |
@@ -43,6 +46,62 @@ void draw_dockspace() {
 
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(3);
+}
+
+void parse_file_system(std::string root_dir) {
+    for (const auto &entry: std::filesystem::recursive_directory_iterator(root_dir)) {
+        if (entry.is_directory())
+            std::printf("Parsed : %s\n", entry.path().string().c_str());
+    }
+}
+
+static const char *file_type_string(const std::filesystem::directory_entry &e) {
+    if (e.is_directory()) {
+        return "Folder";
+    }
+    if (e.is_regular_file()) {
+        std::string file_string = e.path().string().substr(e.path().string().find_last_of('.')+1, e.path().string().length());
+        return file_string.c_str();
+    }
+
+    return "Other";
+}
+
+// this will parse and build the UI tree for the root dir!
+void build_fs_tree(std::filesystem::path path, ImGuiTreeNodeFlags base) {
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+
+    bool is_folder = std::filesystem::is_directory(path);
+
+    ImGuiTreeNodeFlags node_flags = base;
+    if (!is_folder) {
+        node_flags |= ImGuiTreeNodeFlags_Leaf
+                | ImGuiTreeNodeFlags_Bullet
+                | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+    }
+    std::string name = path.filename().string();
+    if (name.empty()) {
+        name = path.string();
+    }
+    bool open = ImGui::TreeNodeEx(name.c_str(), node_flags);
+
+    ImGui::TableNextColumn();
+    if (is_folder) {
+        ImGui::TextDisabled("--");
+    } else {
+        ImGui::Text("%.2lf MB", (double)std::filesystem::file_size(path) * 0.000001);
+    }
+
+    ImGui::TableNextColumn();
+    ImGui::TextUnformatted(file_type_string(std::filesystem::directory_entry(path)));
+
+    if (is_folder && open) {
+        for (const auto &entry: std::filesystem::directory_iterator(path)) {
+            build_fs_tree(entry.path().string(), base);
+        }
+        ImGui::TreePop();
+    }
 }
 
 int main(int, char **) {
@@ -87,26 +146,32 @@ int main(int, char **) {
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
+    // Set up our SDL window with some flags
     float main_scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
     SDL_WindowFlags window_flags =
             SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
-    SDL_Window *window = SDL_CreateWindow("my window", (int) (1280 * main_scale), (int) (800 * main_scale),
+    SDL_Window *window = SDL_CreateWindow("ImMusic", (int) (1280 * main_scale), (int) (800 * main_scale),
                                           window_flags);
     if (window == nullptr) {
         printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
         return 1;
     }
 
+    // Make a GL context
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
     if (gl_context == nullptr) {
         printf("OpenGL context could not be created! SDL Error: %s\n", SDL_GetError());
         return 1;
     }
+
+    // More window config
     SDL_GL_MakeCurrent(window, gl_context);
     SDL_GL_SetSwapInterval(1); // This is vsync
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     SDL_ShowWindow(window);
-    SDL_Surface *icon = IMG_Load("../res/icon.png");
+
+    // Set the app icon
+    SDL_Surface *icon = IMG_Load("../res/ImMusic.svg");
     if (icon == nullptr) {
         printf("icon was null pointer\n");
     }
@@ -121,36 +186,52 @@ int main(int, char **) {
     (void) io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+    // Again, a more desktop like experience, the user cant nest the windows and shift docking.
     io.ConfigDockingNoDockingOver = true;
     io.ConfigDockingWithShift = true;
+
+    // We can change this to whatever, but it makes it look much better!
+    io.Fonts->AddFontFromFileTTF("../res/IosevkaTermNerdFont-Regular.ttf");
 
     ImGui::StyleColorsDark();
 
     ImGuiStyle &style = ImGui::GetStyle();
     style.ScaleAllSizes(main_scale);
     style.FontScaleDpi = main_scale;
-    style.Colors[ImGuiCol_DockingEmptyBg] = ImVec4(0,0,0,0);
+
+    // Make the bg invisible
+    style.Colors[ImGuiCol_DockingEmptyBg] = ImVec4(0, 0, 0, 0);
 
     ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    bool show_demo_window = false;
-    bool show_another_window = false;
+    bool show_demo_window = true;
+    bool show_debug_window = false;
+    bool show_file_system_window = true;
+
     ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.15f, 1.0f);
     glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    bool done = false;
-    while (!done) {
+    // This will be our whole app state in one big FAT struct.
+    app_state_t app_state;
+    app_state.is_running = true;
+
+    // See if this works.
+    parse_file_system("/home/harry/Music");
+
+    // MAIN LOOP
+    while (app_state.is_running) {
         SDL_Event event;
         // Quit logic from SDL
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL3_ProcessEvent(&event);
             if (event.type == SDL_EVENT_QUIT) {
-                done = true;
+                app_state.is_running = false;
             }
             if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == SDL_GetWindowID(window)) {
-                done = true;
+                app_state.is_running = false;
             }
         }
 
@@ -160,6 +241,7 @@ int main(int, char **) {
             continue;
         }
 
+        // Clear everything out before rendering the frame
         glViewport(0, 0, (int) io.DisplaySize.x, (int) io.DisplaySize.y);
         glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
         glClear(GL_COLOR_BUFFER_BIT);
@@ -169,6 +251,7 @@ int main(int, char **) {
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
 
+        // Draw the main dock space that will be the base for the app
         draw_dockspace();
         if (show_demo_window) {
             ImGui::ShowDemoWindow(&show_demo_window);
@@ -176,37 +259,41 @@ int main(int, char **) {
 
         // Our own simple window
         {
-            static float f = 0.0f;
-            static int counter = 0;
+            ImGui::Begin("File System", &show_file_system_window);
+            static ImGuiTableFlags table_flags =
+                    ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
+                    ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
 
-            ImGui::Begin("Hello, world!");
-            ImGui::Text("This is some text.");
-            ImGui::Checkbox("Demo Window", &show_demo_window);
-            ImGui::Checkbox("Another Window", &show_another_window);
-            ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
-            ImGui::ColorEdit3("clear color", (float *) &clear_color);
-            if (ImGui::Button("Button"))
-                counter++;
-            ImGui::SameLine();
-            ImGui::Text("counter = %d", counter);
-            ImGui::Text("Application average %.3f ms/frame", 1000.0f / ImGui::GetIO().Framerate);
+            static ImGuiTreeNodeFlags tree_node_flags_base =
+                    ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_DefaultOpen |
+                    ImGuiTreeNodeFlags_DrawLinesFull;
+
+
+            if (ImGui::BeginTable("file_system", 3, table_flags)) {
+                ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide);
+                ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed);
+                ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
+                ImGui::TableHeadersRow();
+                build_fs_tree("/home/harry/Music/", tree_node_flags_base);
+                ImGui::EndTable();
+            }
             ImGui::End();
         }
 
-        // Another window
-        if (show_another_window) {
-            ImGui::Begin("Another Window", &show_another_window);
+        // Make this a debug overlay?
+        if (show_debug_window) {
+            ImGui::Begin("Debug Window", &show_debug_window);
             // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-            ImGui::Text("Hello from another window!");
-            if (ImGui::Button("Close Me"))
-                show_another_window = false;
+            ImGui::Text("Average %.3f ms/frame", 1000.0f / ImGui::GetIO().Framerate);
             ImGui::End();
         }
 
+        // This is where we render all of our draw calls we generated above with the widgets
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         SDL_GL_SwapWindow(window);
     }
+    // Shutdown and cleanup
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
