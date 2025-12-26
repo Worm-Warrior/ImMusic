@@ -16,8 +16,14 @@
 #endif
 #include <filesystem>
 
-// A lot of code taken from the Dear ImGui example for SDL3+opengl3
-// Link : https://github.com/ocornut/imgui/blob/master/examples/example_sdl3_opengl3/main.cpp
+/* *
+ * A lot of code taken from the Dear ImGui example for SDL3+opengl3 and the demo file
+ * Link : https://github.com/ocornut/imgui/blob/master/examples/example_sdl3_opengl3/main.cpp
+ * Demo file found in : include/imgui_demo.cpp
+ * */
+
+// ! This will be our whole app state in one big FAT GLOBAL struct.
+static app_state_t app_state;
 
 // * Logging copied from the example
 struct app_log {
@@ -133,13 +139,14 @@ struct app_log {
     }
 };
 
+// ! This is also a global for logging anything in this file!
+static app_log debug_log;
 
 // This makes it so that the whole window is one big dock space so we get the windows to act the way we want.
 // ? Should I move this to another file or is it fine here?
 void draw_dockspace() {
     ImGuiWindowFlags flags =
             ImGuiWindowFlags_NoDocking |
-            ImGuiWindowFlags_NoTitleBar |
             ImGuiWindowFlags_NoCollapse |
             ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoMove |
@@ -156,7 +163,7 @@ void draw_dockspace() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 
-    ImGui::Begin("DockspaceRoot", nullptr, flags);
+    ImGui::Begin("Main View", nullptr, flags);
     ImGui::DockSpace(ImGui::GetID("MainDockspace"), ImVec2(0, 0));
     ImGui::End();
 
@@ -174,7 +181,7 @@ static const char *file_type_string(const std::filesystem::directory_entry &e) {
     if (e.is_regular_file()) {
         std::string file_string = e.path().string().substr(e.path().string().find_last_of('.') + 1,
                                                            e.path().string().length());
-        // ! Look into this, might be very bad
+        // ! Look into this, might be very bad and it might escape this function!
         return file_string.c_str();
     }
 
@@ -201,6 +208,12 @@ void build_fs_tree(std::filesystem::path path, ImGuiTreeNodeFlags base) {
         name = path.string();
     }
     bool open = ImGui::TreeNodeEx(name.c_str(), node_flags);
+
+    if (is_directory(path) && (ImGui::IsItemClicked() || ImGui::IsItemActivated()) && path != app_state.
+        cur_selected_folder) {
+        debug_log.AddLog("[INFO]: cur_selected_folder: %s\n", path.string().c_str());
+        app_state.cur_selected_folder = path;
+    }
 
     ImGui::TableNextColumn();
     if (is_folder) {
@@ -309,7 +322,7 @@ int main(int, char **) {
     io.ConfigDockingWithShift = true;
 
     // * Make this a font that handles special chars
-    io.Fonts->AddFontFromFileTTF("../res/Cousine-Regular.ttf");
+    io.Fonts->AddFontFromFileTTF("../res/MPLUS1Code-Regular.ttf");
 
     ImGui::StyleColorsDark();
 
@@ -326,7 +339,6 @@ int main(int, char **) {
     bool show_demo_window = true;
     bool show_log = true;
 
-    app_log log;
 
     bool show_file_system_window = true;
 
@@ -334,8 +346,6 @@ int main(int, char **) {
     glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // This will be our whole app state in one big FAT struct.
-    app_state_t app_state;
     app_state.is_running = true;
 
     // * === MAIN LOOP ===
@@ -374,7 +384,7 @@ int main(int, char **) {
             ImGui::ShowDemoWindow(&show_demo_window);
         }
 
-        // Our own simple window
+        // * This is the file browser window stuff
         {
             ImGui::Begin("Local File System", &show_file_system_window);
             static ImGuiTableFlags table_flags =
@@ -382,7 +392,8 @@ int main(int, char **) {
                     ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
 
             static ImGuiTreeNodeFlags tree_node_flags_base =
-                    ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_DrawLinesFull;
+                    ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_DrawLinesFull |
+                    ImGuiTreeNodeFlags_OpenOnDoubleClick;
 
 
             if (ImGui::BeginTable("file_system", 3, table_flags)) {
@@ -396,10 +407,10 @@ int main(int, char **) {
             ImGui::End();
         }
 
-        // Make this a debug overlay?
+        // * Simple log console copied from the examples in /include/imgui_demo.cpp
         if (show_log) {
             ImGui::SetNextWindowSize(ImVec2(500, 400), ImGuiCond_FirstUseEver);
-            log.Draw("example: Log", &show_log);
+            debug_log.Draw("Debug Log", &show_log);
         }
 
         // This is where we render all of our draw calls we generated above with the widgets
