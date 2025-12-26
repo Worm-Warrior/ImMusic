@@ -19,6 +19,121 @@
 // A lot of code taken from the Dear ImGui example for SDL3+opengl3
 // Link : https://github.com/ocornut/imgui/blob/master/examples/example_sdl3_opengl3/main.cpp
 
+// * Logging copied from the example
+struct app_log {
+    ImGuiTextBuffer Buf;
+    ImGuiTextFilter Filter;
+    ImVector<int> LineOffsets; // Index to lines offset. We maintain this with AddLog() calls.
+    bool AutoScroll; // Keep scrolling if already at the bottom.
+
+    app_log() {
+        AutoScroll = true;
+        Clear();
+    }
+
+    void Clear() {
+        Buf.clear();
+        LineOffsets.clear();
+        LineOffsets.push_back(0);
+    }
+
+    void AddLog(const char *fmt, ...) IM_FMTARGS(2) {
+        int old_size = Buf.size();
+        va_list args;
+        va_start(args, fmt);
+        Buf.appendfv(fmt, args);
+        va_end(args);
+        for (int new_size = Buf.size(); old_size < new_size; old_size++)
+            if (Buf[old_size] == '\n')
+                LineOffsets.push_back(old_size + 1);
+    }
+
+    void Draw(const char *title, bool *p_open = NULL) {
+        if (!ImGui::Begin(title, p_open)) {
+            ImGui::End();
+            return;
+        }
+
+        // Options menu
+        if (ImGui::BeginPopup("Options")) {
+            ImGui::Checkbox("Auto-scroll", &AutoScroll);
+            ImGui::EndPopup();
+        }
+
+        // Main window
+        if (ImGui::Button("Options"))
+            ImGui::OpenPopup("Options");
+        ImGui::SameLine();
+        bool clear = ImGui::Button("Clear");
+        ImGui::SameLine();
+        bool copy = ImGui::Button("Copy");
+        ImGui::SameLine();
+        Filter.Draw("Filter", -100.0f);
+
+        ImGui::Separator();
+
+        if (ImGui::BeginChild("scrolling", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar)) {
+            if (clear)
+                Clear();
+            if (copy)
+                ImGui::LogToClipboard();
+
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+            const char *buf = Buf.begin();
+            const char *buf_end = Buf.end();
+            if (Filter.IsActive()) {
+                // In this example we don't use the clipper when Filter is enabled.
+                // This is because we don't have random access to the result of our filter.
+                // A real application processing logs with ten of thousands of entries may want to store the result of
+                // search/filter.. especially if the filtering function is not trivial (e.g. reg-exp).
+                for (int line_no = 0; line_no < LineOffsets.Size; line_no++) {
+                    const char *line_start = buf + LineOffsets[line_no];
+                    const char *line_end = (line_no + 1 < LineOffsets.Size)
+                                               ? (buf + LineOffsets[line_no + 1] - 1)
+                                               : buf_end;
+                    if (Filter.PassFilter(line_start, line_end))
+                        ImGui::TextUnformatted(line_start, line_end);
+                }
+            } else {
+                // The simplest and easy way to display the entire buffer:
+                //   ImGui::TextUnformatted(buf_begin, buf_end);
+                // And it'll just work. TextUnformatted() has specialization for large blob of text and will fast-forward
+                // to skip non-visible lines. Here we instead demonstrate using the clipper to only process lines that are
+                // within the visible area.
+                // If you have tens of thousands of items and their processing cost is non-negligible, coarse clipping them
+                // on your side is recommended. Using ImGuiListClipper requires
+                // - A) random access into your data
+                // - B) items all being the  same height,
+                // both of which we can handle since we have an array pointing to the beginning of each line of text.
+                // When using the filter (in the block of code above) we don't have random access into the data to display
+                // anymore, which is why we don't use the clipper. Storing or skimming through the search result would make
+                // it possible (and would be recommended if you want to search through tens of thousands of entries).
+                ImGuiListClipper clipper;
+                clipper.Begin(LineOffsets.Size);
+                while (clipper.Step()) {
+                    for (int line_no = clipper.DisplayStart; line_no < clipper.DisplayEnd; line_no++) {
+                        const char *line_start = buf + LineOffsets[line_no];
+                        const char *line_end = (line_no + 1 < LineOffsets.Size)
+                                                   ? (buf + LineOffsets[line_no + 1] - 1)
+                                                   : buf_end;
+                        ImGui::TextUnformatted(line_start, line_end);
+                    }
+                }
+                clipper.End();
+            }
+            ImGui::PopStyleVar();
+
+            // Keep up at the bottom of the scroll region if we were already at the bottom at the beginning of the frame.
+            // Using a scrollbar or mouse-wheel will take away from the bottom edge.
+            if (AutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+                ImGui::SetScrollHereY(1.0f);
+        }
+        ImGui::EndChild();
+        ImGui::End();
+    }
+};
+
+
 // This makes it so that the whole window is one big dock space so we get the windows to act the way we want.
 // ? Should I move this to another file or is it fine here?
 void draw_dockspace() {
@@ -59,6 +174,7 @@ static const char *file_type_string(const std::filesystem::directory_entry &e) {
     if (e.is_regular_file()) {
         std::string file_string = e.path().string().substr(e.path().string().find_last_of('.') + 1,
                                                            e.path().string().length());
+        // ! Look into this, might be very bad
         return file_string.c_str();
     }
 
@@ -192,8 +308,8 @@ int main(int, char **) {
     io.ConfigDockingNoDockingOver = true;
     io.ConfigDockingWithShift = true;
 
-    // We can change this to whatever, but it makes it look much better!
-    io.Fonts->AddFontFromFileTTF("../res/IosevkaTermNerdFont-Regular.ttf");
+    // * Make this a font that handles special chars
+    io.Fonts->AddFontFromFileTTF("../res/Cousine-Regular.ttf");
 
     ImGui::StyleColorsDark();
 
@@ -208,7 +324,10 @@ int main(int, char **) {
     ImGui_ImplOpenGL3_Init(glsl_version);
 
     bool show_demo_window = true;
-    bool show_debug_window = false;
+    bool show_log = true;
+
+    app_log log;
+
     bool show_file_system_window = true;
 
     ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.15f, 1.0f);
@@ -278,11 +397,9 @@ int main(int, char **) {
         }
 
         // Make this a debug overlay?
-        if (show_debug_window) {
-            ImGui::Begin("Debug Window", &show_debug_window);
-            // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-            ImGui::Text("Average %.3f ms/frame", 1000.0f / ImGui::GetIO().Framerate);
-            ImGui::End();
+        if (show_log) {
+            ImGui::SetNextWindowSize(ImVec2(500, 400), ImGuiCond_FirstUseEver);
+            log.Draw("example: Log", &show_log);
         }
 
         // This is where we render all of our draw calls we generated above with the widgets
