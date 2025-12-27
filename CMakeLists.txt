@@ -3,7 +3,7 @@ project(ImMusic)
 
 set(CMAKE_CXX_STANDARD 20)
 
-set(IMGUI_DIR include)
+set(IMGUI_DIR external)
 
 find_package(SDL3 REQUIRED)
 find_package(CURL REQUIRED)
@@ -20,7 +20,9 @@ add_executable(ImMusic
         ${IMGUI_DIR}/imgui_widgets.cpp
         ${IMGUI_DIR}/imgui_impl_sdl3.cpp
         ${IMGUI_DIR}/imgui_impl_opengl3.cpp
-        app_state.h
+        include/app_state.h
+        include/debug_log.h
+        include/track.h
 )
 
 target_include_directories(ImMusic PRIVATE

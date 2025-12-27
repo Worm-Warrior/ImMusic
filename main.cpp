@@ -1,20 +1,29 @@
 #include <iostream>
-#include "include/imgui.h"
-#include "include/imgui_impl_sdl3.h"
-#include "include/imgui_impl_opengl3.h"
+#include "external/imgui.h"
+#include "external/imgui_impl_sdl3.h"
+#include "external/imgui_impl_opengl3.h"
 #include <SDL3/SDL_surface.h>
 #include <cstdio>
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
 
-#include "app_state.h"
-#include "imgui_internal.h"
+#include "include/app_state.h"
+#include "external/imgui_internal.h"
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 #include <SDL3/SDL_opengles2.h>
 #else
 #include <SDL3/SDL_opengl.h>
 #endif
 #include <filesystem>
+#include "include/debug_log.h"
+#include <taglib/fileref.h>
+#include <taglib/tag.h>
+#include <taglib/audioproperties.h>
+#include <algorithm>
+
+static constexpr std::string_view valid_formats[] = {
+    ".mp3", ".flac", ".wav", ".ogg", ".opus", ".aac", ".m4a"
+};
 
 /* *
  * A lot of code taken from the Dear ImGui example for SDL3+opengl3 and the demo file
@@ -22,124 +31,9 @@
  * Demo file found in : include/imgui_demo.cpp
  * */
 
-// ! This will be our whole app state in one big FAT GLOBAL struct.
+// * This will be our whole app state in one big FAT GLOBAL struct.
 static app_state_t app_state;
-
-// * Logging copied from the example
-struct app_log {
-    ImGuiTextBuffer Buf;
-    ImGuiTextFilter Filter;
-    ImVector<int> LineOffsets; // Index to lines offset. We maintain this with AddLog() calls.
-    bool AutoScroll; // Keep scrolling if already at the bottom.
-
-    app_log() {
-        AutoScroll = true;
-        Clear();
-    }
-
-    void Clear() {
-        Buf.clear();
-        LineOffsets.clear();
-        LineOffsets.push_back(0);
-    }
-
-    void AddLog(const char *fmt, ...) IM_FMTARGS(2) {
-        int old_size = Buf.size();
-        va_list args;
-        va_start(args, fmt);
-        Buf.appendfv(fmt, args);
-        va_end(args);
-        for (int new_size = Buf.size(); old_size < new_size; old_size++)
-            if (Buf[old_size] == '\n')
-                LineOffsets.push_back(old_size + 1);
-    }
-
-    void Draw(const char *title, bool *p_open = NULL) {
-        if (!ImGui::Begin(title, p_open)) {
-            ImGui::End();
-            return;
-        }
-
-        // Options menu
-        if (ImGui::BeginPopup("Options")) {
-            ImGui::Checkbox("Auto-scroll", &AutoScroll);
-            ImGui::EndPopup();
-        }
-
-        // Main window
-        if (ImGui::Button("Options"))
-            ImGui::OpenPopup("Options");
-        ImGui::SameLine();
-        bool clear = ImGui::Button("Clear");
-        ImGui::SameLine();
-        bool copy = ImGui::Button("Copy");
-        ImGui::SameLine();
-        Filter.Draw("Filter", -100.0f);
-
-        ImGui::Separator();
-
-        if (ImGui::BeginChild("scrolling", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar)) {
-            if (clear)
-                Clear();
-            if (copy)
-                ImGui::LogToClipboard();
-
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
-            const char *buf = Buf.begin();
-            const char *buf_end = Buf.end();
-            if (Filter.IsActive()) {
-                // In this example we don't use the clipper when Filter is enabled.
-                // This is because we don't have random access to the result of our filter.
-                // A real application processing logs with ten of thousands of entries may want to store the result of
-                // search/filter.. especially if the filtering function is not trivial (e.g. reg-exp).
-                for (int line_no = 0; line_no < LineOffsets.Size; line_no++) {
-                    const char *line_start = buf + LineOffsets[line_no];
-                    const char *line_end = (line_no + 1 < LineOffsets.Size)
-                                               ? (buf + LineOffsets[line_no + 1] - 1)
-                                               : buf_end;
-                    if (Filter.PassFilter(line_start, line_end))
-                        ImGui::TextUnformatted(line_start, line_end);
-                }
-            } else {
-                // The simplest and easy way to display the entire buffer:
-                //   ImGui::TextUnformatted(buf_begin, buf_end);
-                // And it'll just work. TextUnformatted() has specialization for large blob of text and will fast-forward
-                // to skip non-visible lines. Here we instead demonstrate using the clipper to only process lines that are
-                // within the visible area.
-                // If you have tens of thousands of items and their processing cost is non-negligible, coarse clipping them
-                // on your side is recommended. Using ImGuiListClipper requires
-                // - A) random access into your data
-                // - B) items all being the  same height,
-                // both of which we can handle since we have an array pointing to the beginning of each line of text.
-                // When using the filter (in the block of code above) we don't have random access into the data to display
-                // anymore, which is why we don't use the clipper. Storing or skimming through the search result would make
-                // it possible (and would be recommended if you want to search through tens of thousands of entries).
-                ImGuiListClipper clipper;
-                clipper.Begin(LineOffsets.Size);
-                while (clipper.Step()) {
-                    for (int line_no = clipper.DisplayStart; line_no < clipper.DisplayEnd; line_no++) {
-                        const char *line_start = buf + LineOffsets[line_no];
-                        const char *line_end = (line_no + 1 < LineOffsets.Size)
-                                                   ? (buf + LineOffsets[line_no + 1] - 1)
-                                                   : buf_end;
-                        ImGui::TextUnformatted(line_start, line_end);
-                    }
-                }
-                clipper.End();
-            }
-            ImGui::PopStyleVar();
-
-            // Keep up at the bottom of the scroll region if we were already at the bottom at the beginning of the frame.
-            // Using a scrollbar or mouse-wheel will take away from the bottom edge.
-            if (AutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
-                ImGui::SetScrollHereY(1.0f);
-        }
-        ImGui::EndChild();
-        ImGui::End();
-    }
-};
-
-// ! This is also a global for logging anything in this file!
+// * This is also a global for logging anything in this file!
 static app_log debug_log;
 
 // This makes it so that the whole window is one big dock space so we get the windows to act the way we want.
@@ -171,18 +65,19 @@ void draw_dockspace() {
     ImGui::PopStyleVar(3);
 }
 
-// TODO: Move this stuff to its own system_file header / cpp file
-
-// * === FILE SYSTEM PARSING ===
-static const char *file_type_string(const std::filesystem::directory_entry &e) {
+// TODO: Move this filesystem stuff to its own system_file header / cpp file
+/*
+ * === FILE SYSTEM PARSING ===
+ * Build our local browser for folders / albums
+ */
+static std::string file_type_string(const std::filesystem::directory_entry &e) {
     if (e.is_directory()) {
         return "Folder";
     }
     if (e.is_regular_file()) {
         std::string file_string = e.path().string().substr(e.path().string().find_last_of('.') + 1,
                                                            e.path().string().length());
-        // ! Look into this, might be very bad and it might escape this function!
-        return file_string.c_str();
+        return file_string;
     }
 
     return "Other";
@@ -209,7 +104,8 @@ void build_fs_tree(std::filesystem::path path, ImGuiTreeNodeFlags base) {
     }
     bool open = ImGui::TreeNodeEx(name.c_str(), node_flags);
 
-    if (is_directory(path) && (ImGui::IsItemClicked() || ImGui::IsItemActivated()) && path != app_state.
+    if (std::filesystem::is_directory(path) && (ImGui::IsItemClicked() || ImGui::IsItemActivated()) && path != app_state
+        .
         cur_selected_folder) {
         debug_log.AddLog("[INFO]: cur_selected_folder: %s\n", path.string().c_str());
         app_state.cur_selected_folder = path;
@@ -223,7 +119,9 @@ void build_fs_tree(std::filesystem::path path, ImGuiTreeNodeFlags base) {
     }
 
     ImGui::TableNextColumn();
-    ImGui::TextUnformatted(file_type_string(std::filesystem::directory_entry(path)));
+    // * This is needed because the other solution was using a pointer to a local stack frame, invoking UB !
+    const std::string type = file_type_string(std::filesystem::directory_entry(path));
+    ImGui::TextUnformatted(type.c_str());
 
     if (is_folder && open) {
         for (const auto &entry: std::filesystem::directory_iterator(path)) {
@@ -232,6 +130,94 @@ void build_fs_tree(std::filesystem::path path, ImGuiTreeNodeFlags base) {
         ImGui::TreePop();
     }
 }
+
+/*
+ * === MEDIA VIEW ===
+ * This will build up our media view
+ */
+
+// ! TODO: CHANGE THIS TO BE CACHED, HORRIBLE PERF RIGHT NOW.
+void build_media_view(std::filesystem::path path) {
+    for (const std::filesystem::directory_entry &entry: std::filesystem::directory_iterator(path)) {
+        if (std::filesystem::is_directory(entry)) {
+            build_media_view(entry);
+        } else {
+            // Awful C++ string manipulations
+            std::string ext = entry.path().extension().string();
+
+            for (char &c: ext) {
+                if (c >= 'A' && c <= 'Z') {
+                    c += 'a' - 'A';
+                }
+            }
+
+            bool is_valid = false;
+            for (auto e: valid_formats) {
+                if (ext == e) {
+                    is_valid = true;
+                    break;
+                }
+            }
+
+            if (!is_valid) {
+                continue;
+            }
+            // Now we are free to parse.
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+
+            const bool is_selected = (entry.path() == app_state.cur_selected_track);
+
+            // * This code is responsible for the clicking of a single row.
+            std::string label = "##" + entry.path().string();
+            if (ImGui::Selectable(label.c_str(), is_selected,
+                                  ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) {
+                if (ImGui::IsMouseClicked(0)) {
+                    app_state.cur_selected_track = entry.path();
+                    debug_log.AddLog("[INFO]: cur_selected_track: %s\n", label.c_str());
+                }
+            }
+            // Set the cols from metadata
+            ImGui::SameLine();
+            TagLib::FileRef f((entry.path().string().c_str()));
+            ImGui::Text("%d", f.tag()->track());
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", f.tag()->title().toCString());
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", f.tag()->artist().toCString());
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", f.tag()->album().toCString());
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", f.audioProperties()->lengthInSeconds());
+        }
+    }
+}
+
+void show_media_view(std::filesystem::path path) {
+    if (path.empty()) {
+        app_state.show_media_view = false;
+        return;
+    }
+
+    ImGui::Begin("Media View", &app_state.show_media_view);
+    ImGuiTableFlags media_table_flags =
+            ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable;
+
+    if (ImGui::BeginTable("media_view", 5, media_table_flags)) {
+        ImGui::TableSetupColumn("Track", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableSetupColumn("Title", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Artist", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Album", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Duration", ImGuiTableColumnFlags_WidthFixed);
+        // ? ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableHeadersRow();
+        build_media_view(path);
+        ImGui::EndTable();
+    }
+    ImGui::End();
+}
+
 
 // * === ENTRY POINT ===
 int main(int, char **) {
@@ -336,8 +322,8 @@ int main(int, char **) {
     ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    bool show_demo_window = true;
-    bool show_log = true;
+    bool show_demo_window = false;
+    bool show_log = false;
 
 
     bool show_file_system_window = true;
@@ -384,9 +370,18 @@ int main(int, char **) {
             ImGui::ShowDemoWindow(&show_demo_window);
         }
 
+        if (ImGui::IsKeyReleased(ImGuiKey_F1)) {
+            show_demo_window ^= true;
+        }
+
+        if (ImGui::IsKeyReleased(ImGuiKey_F2)) {
+            show_log ^= true;
+        }
+
         // * This is the file browser window stuff
         {
             ImGui::Begin("Local File System", &show_file_system_window);
+            // TODO: Refactor out to a function?
             static ImGuiTableFlags table_flags =
                     ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
                     ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
@@ -407,10 +402,18 @@ int main(int, char **) {
             ImGui::End();
         }
 
+        show_media_view(app_state.cur_selected_folder);
+
         // * Simple log console copied from the examples in /include/imgui_demo.cpp
         if (show_log) {
             ImGui::SetNextWindowSize(ImVec2(500, 400), ImGuiCond_FirstUseEver);
             debug_log.Draw("Debug Log", &show_log);
+        }
+
+        {
+            ImGui::Begin("frametime");
+            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+            ImGui::End();
         }
 
         // This is where we render all of our draw calls we generated above with the widgets
