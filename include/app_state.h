@@ -6,14 +6,21 @@
 #define IMMUSIC_APP_STATE_H
 #include <string>
 #include <filesystem>
+#include <vector>
 
+#include "track.h"
+
+// * big -> small fields
 struct app_state_t {
-    bool show_media_view = true;
+    std::vector<track_t> media_view_tracks;
 
+    std::filesystem::path cur_selected_folder;
+    std::filesystem::path cur_media_folder;
+    std::filesystem::path cur_selected_track;
+    std::string root_dir;
+
+    bool show_media_view = true;
     bool is_running = true;
     bool is_remote = false;
-    std::string root_dir;
-    std::filesystem::path cur_selected_folder;
-    std::filesystem::path cur_selected_track;
 };
 #endif //IMMUSIC_APP_STATE_H

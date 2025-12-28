@@ -6,14 +6,16 @@
 #define IMMUSIC_TRACK_H
 #include <filesystem>
 
+// * big -> small fields
 struct track_t {
-    // ? maybe we make a remote and local track struct instead of a bool for this program ?
-    bool is_remote;
-
     std::filesystem::path path;
     std::string track_name;
+    std::string artist_name;
     std::string album_name;
-    int track_number;
-    int duration; // Duration in seconds?
+    // We don't need signed integers for these
+    unsigned int track_number;
+    unsigned int duration; // Duration in seconds?
+
+    bool is_remote;
 };
 #endif //IMMUSIC_TRACK_H

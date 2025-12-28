@@ -65,11 +65,19 @@ void draw_dockspace() {
     ImGui::PopStyleVar(3);
 }
 
-// TODO: Move this filesystem stuff to its own system_file header / cpp file
 /*
  * === FILE SYSTEM PARSING ===
  * Build our local browser for folders / albums
+ *
+ * Ideas for later:
+ * We should be caching this on first load of a new root folder (we can't now, but will be important when the user can).
+ * If it gets too bad for the frame time on first load -> maybe over more than one frame?
+ * Try and keep the data structure flat, like in the imgui_demo.cpp example.
  */
+
+// ? Move this filesystem stuff to its own system_file header / cpp file ?
+
+// ! TODO: CACHE THIS, PERF BAD
 static std::string file_type_string(const std::filesystem::directory_entry &e) {
     if (e.is_directory()) {
         return "Folder";
@@ -119,7 +127,6 @@ void build_fs_tree(std::filesystem::path path, ImGuiTreeNodeFlags base) {
     }
 
     ImGui::TableNextColumn();
-    // * This is needed because the other solution was using a pointer to a local stack frame, invoking UB !
     const std::string type = file_type_string(std::filesystem::directory_entry(path));
     ImGui::TextUnformatted(type.c_str());
 
@@ -133,10 +140,14 @@ void build_fs_tree(std::filesystem::path path, ImGuiTreeNodeFlags base) {
 
 /*
  * === MEDIA VIEW ===
- * This will build up our media view
+ * This will build up our media view.
+ *
+ * Ideas for later:
+ * Use the clipping from ImGui to load only sections at a time.
+ * Spread the rendering across more than one frame, so we don't get frame time spikes.
+ * Maybe pass something smaller than the whole path of the file to the ImGui::Selectable().
  */
 
-// ! TODO: CHANGE THIS TO BE CACHED, HORRIBLE PERF RIGHT NOW.
 void build_media_view(std::filesystem::path path) {
     for (const std::filesystem::directory_entry &entry: std::filesystem::directory_iterator(path)) {
         if (std::filesystem::is_directory(entry)) {
@@ -162,34 +173,45 @@ void build_media_view(std::filesystem::path path) {
             if (!is_valid) {
                 continue;
             }
-            // Now we are free to parse.
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-
-            const bool is_selected = (entry.path() == app_state.cur_selected_track);
-
-            // * This code is responsible for the clicking of a single row.
-            std::string label = "##" + entry.path().string();
-            if (ImGui::Selectable(label.c_str(), is_selected,
-                                  ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) {
-                if (ImGui::IsMouseClicked(0)) {
-                    app_state.cur_selected_track = entry.path();
-                    debug_log.AddLog("[INFO]: cur_selected_track: %s\n", label.c_str());
-                }
-            }
-            // Set the cols from metadata
-            ImGui::SameLine();
             TagLib::FileRef f((entry.path().string().c_str()));
-            ImGui::Text("%d", f.tag()->track());
-            ImGui::TableNextColumn();
-            ImGui::Text("%s", f.tag()->title().toCString());
-            ImGui::TableNextColumn();
-            ImGui::Text("%s", f.tag()->artist().toCString());
-            ImGui::TableNextColumn();
-            ImGui::Text("%s", f.tag()->album().toCString());
-            ImGui::TableNextColumn();
-            ImGui::Text("%d", f.audioProperties()->lengthInSeconds());
+            track_t t;
+            t.path = entry.path();
+            t.is_remote = false;
+            t.track_number = f.tag()->track();
+            t.track_name = std::string(f.tag()->title().to8Bit());
+            t.artist_name = std::string(f.tag()->artist().to8Bit());
+            t.album_name = std::string(f.tag()->album().to8Bit());
+            t.duration = f.audioProperties()->lengthInSeconds();
+            app_state.media_view_tracks.push_back(t);
+            debug_log.AddLog("[INFO]: added track %s to the media_view_tracks\n", t.track_name.c_str());
         }
+    }
+    app_state.cur_media_folder = path;
+}
+
+void display_tracks(const std::vector<track_t> &tracks) {
+    for (const track_t &t: tracks) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        const bool is_selected = (app_state.cur_selected_track == t.path);
+
+        if ((ImGui::Selectable(("##" + t.path.string()).c_str(), is_selected,
+                               ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) &&
+            ImGui::IsMouseDoubleClicked(0)) {
+            app_state.cur_selected_track = t.path;
+            debug_log.AddLog("[INFO]: cur_selected_track: %s\n", t.path.c_str());
+        }
+
+        ImGui::SameLine();
+        ImGui::Text("%d", t.track_number);
+        ImGui::TableNextColumn();
+        ImGui::Text("%s", t.track_name.c_str());
+        ImGui::TableNextColumn();
+        ImGui::Text("%s", t.artist_name.c_str());
+        ImGui::TableNextColumn();
+        ImGui::Text("%s", t.album_name.c_str());
+        ImGui::TableNextColumn();
+        ImGui::Text("%d", t.duration);
     }
 }
 
@@ -202,22 +224,24 @@ void show_media_view(std::filesystem::path path) {
     ImGui::Begin("Media View", &app_state.show_media_view);
     ImGuiTableFlags media_table_flags =
             ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
-            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable;
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable |
+            ImGuiTableFlags_Sortable;
 
     if (ImGui::BeginTable("media_view", 5, media_table_flags)) {
-        ImGui::TableSetupColumn("Track", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableSetupColumn(
+            "Track",
+            ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortAscending |
+            ImGuiTableColumnFlags_DefaultSort, 80.0f);
         ImGui::TableSetupColumn("Title", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Artist", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableSetupColumn("Album", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableSetupColumn("Duration", ImGuiTableColumnFlags_WidthFixed);
-        // ? ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableHeadersRow();
-        build_media_view(path);
+        display_tracks(app_state.media_view_tracks);
         ImGui::EndTable();
     }
     ImGui::End();
 }
-
 
 // * === ENTRY POINT ===
 int main(int, char **) {
@@ -402,6 +426,16 @@ int main(int, char **) {
             ImGui::End();
         }
 
+        /*
+         * If the current selected folder is NOT the same as the current media folder, then we need to rebuild the
+         * media player!
+        */
+        if (app_state.cur_selected_folder != app_state.cur_media_folder) {
+            // Clear the old tracks before we rebuild the list!
+            app_state.media_view_tracks.clear();
+            build_media_view(app_state.cur_selected_folder);
+            debug_log.AddLog("[INFO]: %lu tracks in the list\n", app_state.media_view_tracks.size());
+        }
         show_media_view(app_state.cur_selected_folder);
 
         // * Simple log console copied from the examples in /include/imgui_demo.cpp
