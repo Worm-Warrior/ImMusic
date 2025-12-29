@@ -11,6 +11,13 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(VLC REQUIRED libvlc)
 pkg_check_modules(TAGLIB REQUIRED taglib)
 
+pkg_check_modules(FFMPEG REQUIRED
+        libavformat
+        libavcodec
+        libavutil
+        libswresample
+)
+
 add_executable(ImMusic
         main.cpp
         ${IMGUI_DIR}/imgui.cpp
@@ -23,22 +30,30 @@ add_executable(ImMusic
         include/app_state.h
         include/debug_log.h
         include/track.h
+        include/audio.h
+        include/audio.cpp
 )
 
 target_include_directories(ImMusic PRIVATE
         ${IMGUI_DIR}
         ${VLC_INCLUDE_DIRS}
         ${TAGLIB_INCLUDE_DIRS}
-        /usr/include/SDL3        # SDL3 headers
-        /usr/include/SDL3/SDL3_image.h  # SDL3_image header location
+        /usr/include/SDL3
+        /usr/include/SDL3/SDL3_image.h
+        ${FFMPEG_INCLUDE_DIRS}
 )
 
 target_link_libraries(
         ImMusic
         SDL3::SDL3
-        /usr/lib64/libSDL3_image.so   # manually link SDL3_image
+        /usr/lib64/libSDL3_image.so
         CURL::libcurl
         ${VLC_LIBRARIES}
         ${TAGLIB_LIBRARIES}
         GL
+        ${FFMPEG_LIBRARIES}
+)
+
+target_compile_options(ImMusic PRIVATE
+        ${FFMPEG_CFLAGS_OTHER}
 )

@@ -9,6 +9,7 @@
 
 #include "include/app_state.h"
 #include "external/imgui_internal.h"
+#include "include/audio.h"
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 #include <SDL3/SDL_opengles2.h>
 #else
@@ -20,6 +21,13 @@
 #include <taglib/tag.h>
 #include <taglib/audioproperties.h>
 #include <algorithm>
+
+extern "C" {
+#include <ffmpeg/libavformat/avformat.h>
+#include <ffmpeg/libavcodec/avcodec.h>
+#include <ffmpeg/libswresample/swresample.h>
+#include <ffmpeg/libavutil/opt.h>
+}
 
 static constexpr std::string_view valid_formats[] = {
     ".mp3", ".flac", ".wav", ".ogg", ".opus", ".aac", ".m4a"
@@ -35,6 +43,12 @@ static constexpr std::string_view valid_formats[] = {
 static app_state_t app_state;
 // * This is also a global for logging anything in this file!
 static app_log debug_log;
+// * Thread that we use to decode.
+static std::thread decoder_thread;
+// * Audio context;
+static audio_context_t audio_context;
+// * We know if we need to init audio
+static bool has_audio_init = false;
 
 // This makes it so that the whole window is one big dock space so we get the windows to act the way we want.
 // ? Should I move this to another file or is it fine here?
@@ -138,6 +152,41 @@ void build_fs_tree(std::filesystem::path path, ImGuiTreeNodeFlags base) {
     }
 }
 
+void load_and_play_file(const std::filesystem::path &track_path) {
+    if (decoder_thread.joinable()) {
+        audio_context.should_stop = true;
+        decoder_thread.join();
+    }
+
+    if (!load_file(audio_context, track_path.string())) {
+        debug_log.AddLog("[ERROR]: Failed to load file %s\n", track_path.string().c_str());
+        return;
+    }
+    debug_log.AddLog("[INFO]: Loaded file: %s\n", track_path.string().c_str());
+
+    SDL_AudioSpec spec;
+    SDL_zero(spec);
+    spec.freq = audio_context.codec_context->sample_rate;
+    spec.channels = audio_context.codec_context->ch_layout.nb_channels;
+    spec.format = SDL_AUDIO_F32;
+
+    if (audio_context.audio_stream) {
+        SDL_DestroyAudioStream(audio_context.audio_stream);
+    }
+
+    if (!init_audio(audio_context, spec)) {
+        debug_log.AddLog("[ERROR]: Failed to init audio\n");
+        return;
+    }
+    has_audio_init = true;
+    audio_context.should_stop = false;
+    audio_context.is_paused = false;
+    debug_log.AddLog("[DEBUG]: Before start - should_stop: %d\n", audio_context.should_stop);
+    start_decoding_thread(audio_context, decoder_thread);
+    debug_log.AddLog("[DEBUG]: After start - thread started\n");
+    debug_log.AddLog("[INFO]: Now playing: %s\n", track_path.filename().string().c_str());
+}
+
 /*
  * === MEDIA VIEW ===
  * This will build up our media view.
@@ -200,7 +249,8 @@ void display_tracks(const std::vector<track_t> &tracks) {
             ImGui::IsMouseDoubleClicked(0)) {
             app_state.cur_selected_track = t.path;
             debug_log.AddLog("[INFO]: cur_selected_track: %s\n", t.path.c_str());
-        }
+            load_and_play_file(t.path);
+            }
 
         ImGui::SameLine();
         ImGui::Text("%d", t.track_number);
