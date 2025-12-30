@@ -33,6 +33,8 @@ add_executable(ImMusic
         include/audio.h
         include/audio.cpp
         include/file_tree.h
+        external/tinyfiledialogs.h
+        external/tinyfiledialogs.c
 )
 
 target_include_directories(ImMusic PRIVATE

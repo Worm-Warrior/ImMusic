@@ -1,3 +1,9 @@
+/* *
+ * A lot of the setup code taken from the Dear ImGui example for SDL3+opengl3 and the demo file
+ * Link : https://github.com/ocornut/imgui/blob/master/examples/example_sdl3_opengl3/main.cpp
+ * Demo file found in : include/imgui_demo.cpp
+ * */
+
 #include <iostream>
 #include "external/imgui.h"
 #include "external/imgui_impl_sdl3.h"
@@ -22,23 +28,18 @@
 #include <taglib/audioproperties.h>
 #include <algorithm>
 #include "include/file_tree.h"
+#include "external/tinyfiledialogs.h"
 
 extern "C" {
-#include <ffmpeg/libavformat/avformat.h>
 #include <ffmpeg/libavcodec/avcodec.h>
 #include <ffmpeg/libswresample/swresample.h>
-#include <ffmpeg/libavutil/opt.h>
 }
 
 static constexpr std::string_view valid_formats[] = {
     ".mp3", ".flac", ".wav", ".ogg", ".opus", ".aac", ".m4a"
 };
 
-/* *
- * A lot of code taken from the Dear ImGui example for SDL3+opengl3 and the demo file
- * Link : https://github.com/ocornut/imgui/blob/master/examples/example_sdl3_opengl3/main.cpp
- * Demo file found in : include/imgui_demo.cpp
- * */
+// TODO: this needs a big refactor to keep the main.cpp small and more readable.
 
 // * This will be our whole app state in one big FAT GLOBAL struct.
 static app_state_t app_state;
@@ -80,9 +81,17 @@ void draw_dockspace() {
     // TODO: Add the dropdown menus I want and code the logic.
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("Menu")) {
-            if (ImGui::MenuItem("Change root directory")) {}
-            if (ImGui::MenuItem("Search")) {}
-            if (ImGui::MenuItem("Exit")) {app_state.is_running = false;}
+            if (ImGui::MenuItem("Change root directory")) {
+                // Holy moly this is so simple and just works like this, thank God for OSS and platform layers!
+                const char *path = tinyfd_selectFolderDialog("Select Music Folder",
+                                                             app_state.cur_root_dir.c_str());
+                if (path) {
+                    app_state.new_root_dir = std::string(path);
+                }
+            }
+            if (ImGui::MenuItem("Search")) {
+            }
+            if (ImGui::MenuItem("Exit")) { app_state.is_running = false; }
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
@@ -94,13 +103,13 @@ void draw_dockspace() {
     ImGui::PopStyleVar(3);
 }
 
-/*
+/* *
  * === FILE SYSTEM PARSING ===
  * Build our local browser for folders / albums
  *
  * Ideas for later:
  * If it gets too bad for the frame time on first load -> maybe over more than one frame?
- */
+ * */
 
 // ? Move this filesystem stuff to its own system_file header / cpp file ?
 
@@ -131,7 +140,7 @@ void render_node(int node_idx, const file_system_cache_t &cache) {
                                ImGuiTreeNodeFlags_OpenOnArrow;
 
     if (node_idx == 0) {
-        flags |= ImGuiTreeNodeFlags_DefaultOpen;
+        flags |= ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow;
     }
 
     if (!node.has_children) {
@@ -148,8 +157,6 @@ void render_node(int node_idx, const file_system_cache_t &cache) {
         debug_log.AddLog("[INFO]: Selected folder %s\n", node.path.c_str());
         app_state.show_media_view = true;
     }
-    ImGui::TableNextColumn();
-    ImGui::TextDisabled("--");
 
     ImGui::TableNextColumn();
     ImGui::Text("Folder");
@@ -168,7 +175,7 @@ void scan_folders(const std::filesystem::path &root, file_system_cache_t &cache)
     cache.root = root;
 
     file_tree_node_t root_node;
-    root_node.name = root.parent_path().filename().string();
+    root_node.name = root.string();
     root_node.parent_index = -1;
     root_node.path = root;
     cache.nodes.push_back(root_node);
@@ -211,7 +218,7 @@ void load_and_play_file(const std::filesystem::path &track_path) {
     debug_log.AddLog("[INFO]: Now playing: %s\n", track_path.filename().string().c_str());
 }
 
-/*
+/* *
  * === MEDIA VIEW ===
  * This will build up our media view.
  *
@@ -219,7 +226,7 @@ void load_and_play_file(const std::filesystem::path &track_path) {
  * Use the clipping from ImGui to load only sections at a time.
  * Spread the rendering across more than one frame, so we don't get frame time spikes.
  * Maybe pass something smaller than the whole path of the file to the ImGui::Selectable().
- */
+ * */
 
 void build_media_view(std::filesystem::path path) {
     for (const std::filesystem::directory_entry &entry: std::filesystem::directory_iterator(path)) {
@@ -252,15 +259,16 @@ void build_media_view(std::filesystem::path path) {
             t.path = entry.path();
             t.is_remote = false;
             t.track_number = f.tag()->track();
-            t.track_name = std::string(f.tag()->title().to8Bit());
+            // Need true for unicode, else the asian characters don't show right on media view.
+            t.track_name = std::string(f.tag()->title().to8Bit(true));
             if (t.track_name.empty()) {
                 t.track_name = "Unknown";
             }
-            t.artist_name = std::string(f.tag()->artist().to8Bit());
+            t.artist_name = std::string(f.tag()->artist().to8Bit(true));
             if (t.artist_name.empty()) {
                 t.artist_name = "Unknown";
             }
-            t.album_name = std::string(f.tag()->album().to8Bit());
+            t.album_name = std::string(f.tag()->album().to8Bit(true));
             if (t.album_name.empty()) {
                 t.album_name = "Unknown";
             }
@@ -435,8 +443,6 @@ int main(int, char **) {
     bool show_file_system_window = true;
     bool show_frametime = false;
 
-    app_state.new_root_dir = "/home/harry/Music/";
-
     ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.15f, 1.0f);
     glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -503,10 +509,22 @@ int main(int, char **) {
                     ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_DrawLinesFull |
                     ImGuiTreeNodeFlags_OpenOnDoubleClick;
 
+            // Handle if we have no root dir, ask the user to provide a music folder to have as root
+            if (app_state.cur_root_dir.empty() && app_state.new_root_dir.empty()) {
+                if (tinyfd_messageBox("No music folder found","Select 'yes' to choose music folder\nSelect 'no' to close program" , "yesno", "question", 0)) {
+                    const char *path = tinyfd_selectFolderDialog("Please Select Music Folder",
+                                                                 app_state.cur_root_dir.c_str());
+                    if (path) {
+                        app_state.new_root_dir = std::string(path);
+                    }
+                } else {
+                    fprintf(stderr, "User selected not to choose music folder!\n");
+                    return 0;
+                }
+            }
 
-            if (ImGui::BeginTable("file_system", 3, table_flags)) {
+            if (ImGui::BeginTable("file_system", 2, table_flags)) {
                 ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide);
-                ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed);
                 ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
                 ImGui::TableHeadersRow();
 
@@ -522,10 +540,10 @@ int main(int, char **) {
             ImGui::End();
         }
 
-        /*
+        /* *
          * If the current selected folder is NOT the same as the current media folder, then we need to rebuild the
          * media player!
-        */
+        * */
         if (app_state.cur_selected_folder != app_state.cur_media_folder) {
             // Clear the old tracks before we rebuild the list!
             app_state.media_view_tracks.clear();
