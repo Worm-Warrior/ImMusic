@@ -18,7 +18,6 @@ struct file_tree_node_t {
 struct file_system_cache_t {
     std::vector<file_tree_node_t> nodes;
     std::filesystem::path root;
-    bool is_valid;
 };
 
 #endif //IMMUSIC_FILE_TREE_H

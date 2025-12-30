@@ -62,7 +62,7 @@ void draw_dockspace() {
             ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoMove |
             ImGuiWindowFlags_NoBringToFrontOnFocus |
-            ImGuiWindowFlags_NoNavFocus;
+            ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoDecoration;
 
     const ImGuiViewport *vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
@@ -75,6 +75,18 @@ void draw_dockspace() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 
     ImGui::Begin("Main View", nullptr, flags);
+
+    // Main menu bar logic goes here.
+    // TODO: Add the dropdown menus I want and code the logic.
+    if (ImGui::BeginMainMenuBar()) {
+        if (ImGui::BeginMenu("Menu")) {
+            if (ImGui::MenuItem("Change root directory")) {}
+            if (ImGui::MenuItem("Search")) {}
+            if (ImGui::MenuItem("Exit")) {app_state.is_running = false;}
+            ImGui::EndMenu();
+        }
+        ImGui::EndMainMenuBar();
+    }
     ImGui::DockSpace(ImGui::GetID("MainDockspace"), ImVec2(0, 0));
     ImGui::End();
 
@@ -87,9 +99,7 @@ void draw_dockspace() {
  * Build our local browser for folders / albums
  *
  * Ideas for later:
- * We should be caching this on first load of a new root folder (we can't now, but will be important when the user can).
  * If it gets too bad for the frame time on first load -> maybe over more than one frame?
- * Try and keep the data structure flat, like in the imgui_demo.cpp example.
  */
 
 // ? Move this filesystem stuff to its own system_file header / cpp file ?
@@ -136,6 +146,7 @@ void render_node(int node_idx, const file_system_cache_t &cache) {
     if (ImGui::IsItemClicked() && node.path != app_state.cur_selected_folder) {
         app_state.cur_selected_folder = node.path;
         debug_log.AddLog("[INFO]: Selected folder %s\n", node.path.c_str());
+        app_state.show_media_view = true;
     }
     ImGui::TableNextColumn();
     ImGui::TextDisabled("--");
@@ -164,7 +175,6 @@ void scan_folders(const std::filesystem::path &root, file_system_cache_t &cache)
 
     add_folder_rec(root, 0, cache);
 
-    cache.is_valid = true;
     app_state.cur_root_dir = root;
 }
 
@@ -243,8 +253,17 @@ void build_media_view(std::filesystem::path path) {
             t.is_remote = false;
             t.track_number = f.tag()->track();
             t.track_name = std::string(f.tag()->title().to8Bit());
+            if (t.track_name.empty()) {
+                t.track_name = "Unknown";
+            }
             t.artist_name = std::string(f.tag()->artist().to8Bit());
+            if (t.artist_name.empty()) {
+                t.artist_name = "Unknown";
+            }
             t.album_name = std::string(f.tag()->album().to8Bit());
+            if (t.album_name.empty()) {
+                t.album_name = "Unknown";
+            }
             t.duration = f.audioProperties()->lengthInSeconds();
             app_state.media_view_tracks.push_back(t);
             debug_log.AddLog("[INFO]: added track %s to the media_view_tracks\n", t.track_name.c_str());
@@ -413,8 +432,9 @@ int main(int, char **) {
 
     bool show_demo_window = false;
     bool show_log = false;
-
     bool show_file_system_window = true;
+    bool show_frametime = false;
+
     app_state.new_root_dir = "/home/harry/Music/";
 
     ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.15f, 1.0f);
@@ -460,11 +480,15 @@ int main(int, char **) {
         }
 
         if (ImGui::IsKeyReleased(ImGuiKey_F1)) {
-            show_demo_window ^= true;
+            show_demo_window = !show_demo_window;
         }
 
         if (ImGui::IsKeyReleased(ImGuiKey_F2)) {
-            show_log ^= true;
+            show_log = !show_log;
+        }
+
+        if (ImGui::IsKeyReleased(ImGuiKey_F3)) {
+            show_frametime = !show_frametime;
         }
 
         // * This is the file browser window stuff
@@ -508,7 +532,9 @@ int main(int, char **) {
             build_media_view(app_state.cur_selected_folder);
             debug_log.AddLog("[INFO]: %lu tracks in the list\n", app_state.media_view_tracks.size());
         }
-        show_media_view(app_state.cur_selected_folder);
+        if (app_state.show_media_view) {
+            show_media_view(app_state.cur_selected_folder);
+        }
 
         // * Simple log console copied from the examples in /include/imgui_demo.cpp
         if (show_log) {
@@ -516,8 +542,8 @@ int main(int, char **) {
             debug_log.Draw("Debug Log", &show_log);
         }
 
-        {
-            ImGui::Begin("frametime");
+        if (show_frametime) {
+            ImGui::Begin("frametime", &show_frametime);
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
             ImGui::End();
         }
