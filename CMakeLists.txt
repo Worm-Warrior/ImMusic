@@ -32,6 +32,7 @@ add_executable(ImMusic
         include/track.h
         include/audio.h
         include/audio.cpp
+        include/file_tree.h
 )
 
 target_include_directories(ImMusic PRIVATE

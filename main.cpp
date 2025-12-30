@@ -21,6 +21,7 @@
 #include <taglib/tag.h>
 #include <taglib/audioproperties.h>
 #include <algorithm>
+#include "include/file_tree.h"
 
 extern "C" {
 #include <ffmpeg/libavformat/avformat.h>
@@ -49,6 +50,8 @@ static std::thread decoder_thread;
 static audio_context_t audio_context;
 // * We know if we need to init audio
 static bool has_audio_init = false;
+// * Cache of the filesystem
+static file_system_cache_t file_system_cache;
 
 // This makes it so that the whole window is one big dock space so we get the windows to act the way we want.
 // ? Should I move this to another file or is it fine here?
@@ -91,65 +94,78 @@ void draw_dockspace() {
 
 // ? Move this filesystem stuff to its own system_file header / cpp file ?
 
-// ! TODO: CACHE THIS, PERF BAD
-static std::string file_type_string(const std::filesystem::directory_entry &e) {
-    if (e.is_directory()) {
-        return "Folder";
-    }
-    if (e.is_regular_file()) {
-        std::string file_string = e.path().string().substr(e.path().string().find_last_of('.') + 1,
-                                                           e.path().string().length());
-        return file_string;
-    }
+void add_folder_rec(const std::filesystem::path &root, int parent_idx, file_system_cache_t &cache) {
+    for (const auto &entry: std::filesystem::directory_iterator(root)) {
+        if (entry.is_directory()) {
+            int idx = cache.nodes.size();
+            cache.nodes[parent_idx].child_indexes.push_back(idx);
 
-    return "Other";
+            file_tree_node_t node;
+            node.name = entry.path().filename().string();
+            node.path = entry.path();
+            node.parent_index = parent_idx;
+
+            cache.nodes.push_back(node);
+
+            add_folder_rec(node.path, idx, cache);
+
+            cache.nodes[idx].has_children = !cache.nodes[idx].child_indexes.empty();
+        }
+    }
 }
 
-// this will parse and build the UI tree for the root dir!
-void build_fs_tree(std::filesystem::path path, ImGuiTreeNodeFlags base) {
+void render_node(int node_idx, const file_system_cache_t &cache) {
+    const file_tree_node_t &node = cache.nodes[node_idx];
+
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_OpenOnDoubleClick |
+                               ImGuiTreeNodeFlags_OpenOnArrow;
+
+    if (node_idx == 0) {
+        flags |= ImGuiTreeNodeFlags_DefaultOpen;
+    }
+
+    if (!node.has_children) {
+        flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet;
+    }
+
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
 
-    bool is_folder = std::filesystem::is_directory(path);
+    bool open = ImGui::TreeNodeEx(node.name.c_str(), flags);
 
-    ImGuiTreeNodeFlags node_flags = base;
-    if (!is_folder) {
-        node_flags |= ImGuiTreeNodeFlags_Leaf
-                | ImGuiTreeNodeFlags_Bullet
-                | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+    if (ImGui::IsItemClicked() && node.path != app_state.cur_selected_folder) {
+        app_state.cur_selected_folder = node.path;
+        debug_log.AddLog("[INFO]: Selected folder %s\n", node.path.c_str());
     }
-    std::string name = path.filename().string();
-    // Root node case, we want it to be open, but the subfolders should NOT open by default!
-    if (name.empty()) {
-        node_flags |= ImGuiTreeNodeFlags_DefaultOpen;
-        name = path.string();
-    }
-    bool open = ImGui::TreeNodeEx(name.c_str(), node_flags);
-
-    if (std::filesystem::is_directory(path) && (ImGui::IsItemClicked() || ImGui::IsItemActivated()) && path != app_state
-        .
-        cur_selected_folder) {
-        debug_log.AddLog("[INFO]: cur_selected_folder: %s\n", path.string().c_str());
-        app_state.cur_selected_folder = path;
-    }
+    ImGui::TableNextColumn();
+    ImGui::TextDisabled("--");
 
     ImGui::TableNextColumn();
-    if (is_folder) {
-        ImGui::TextDisabled("--");
-    } else {
-        ImGui::Text("%.2lf MB", (double) std::filesystem::file_size(path) * 0.000001);
-    }
+    ImGui::Text("Folder");
 
-    ImGui::TableNextColumn();
-    const std::string type = file_type_string(std::filesystem::directory_entry(path));
-    ImGui::TextUnformatted(type.c_str());
-
-    if (is_folder && open) {
-        for (const auto &entry: std::filesystem::directory_iterator(path)) {
-            build_fs_tree(entry.path().string(), base);
+    if (open) {
+        for (int i: node.child_indexes) {
+            render_node(i, cache);
         }
         ImGui::TreePop();
     }
+}
+
+void scan_folders(const std::filesystem::path &root, file_system_cache_t &cache) {
+    debug_log.AddLog("[INFO]: Rebuilding root: %s\n", root.c_str());
+    cache.nodes.clear();
+    cache.root = root;
+
+    file_tree_node_t root_node;
+    root_node.name = root.parent_path().filename().string();
+    root_node.parent_index = -1;
+    root_node.path = root;
+    cache.nodes.push_back(root_node);
+
+    add_folder_rec(root, 0, cache);
+
+    cache.is_valid = true;
+    app_state.cur_root_dir = root;
 }
 
 void load_and_play_file(const std::filesystem::path &track_path) {
@@ -181,9 +197,7 @@ void load_and_play_file(const std::filesystem::path &track_path) {
     has_audio_init = true;
     audio_context.should_stop = false;
     audio_context.is_paused = false;
-    debug_log.AddLog("[DEBUG]: Before start - should_stop: %d\n", audio_context.should_stop);
     start_decoding_thread(audio_context, decoder_thread);
-    debug_log.AddLog("[DEBUG]: After start - thread started\n");
     debug_log.AddLog("[INFO]: Now playing: %s\n", track_path.filename().string().c_str());
 }
 
@@ -211,6 +225,7 @@ void build_media_view(std::filesystem::path path) {
                 }
             }
 
+            // Filter the valid file formats we want to play.
             bool is_valid = false;
             for (auto e: valid_formats) {
                 if (ext == e) {
@@ -218,7 +233,7 @@ void build_media_view(std::filesystem::path path) {
                     break;
                 }
             }
-
+            // If the file is not a valid format -> skip it.
             if (!is_valid) {
                 continue;
             }
@@ -250,7 +265,7 @@ void display_tracks(const std::vector<track_t> &tracks) {
             app_state.cur_selected_track = t.path;
             debug_log.AddLog("[INFO]: cur_selected_track: %s\n", t.path.c_str());
             load_and_play_file(t.path);
-            }
+        }
 
         ImGui::SameLine();
         ImGui::Text("%d", t.track_number);
@@ -399,8 +414,8 @@ int main(int, char **) {
     bool show_demo_window = false;
     bool show_log = false;
 
-
     bool show_file_system_window = true;
+    app_state.new_root_dir = "/home/harry/Music/";
 
     ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.15f, 1.0f);
     glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
@@ -470,7 +485,14 @@ int main(int, char **) {
                 ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed);
                 ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
                 ImGui::TableHeadersRow();
-                build_fs_tree("/home/harry/Music/", tree_node_flags_base);
+
+                if (app_state.new_root_dir != app_state.cur_root_dir) {
+                    scan_folders(app_state.new_root_dir, file_system_cache);
+                }
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                render_node(0, file_system_cache);
+
                 ImGui::EndTable();
             }
             ImGui::End();
@@ -512,6 +534,11 @@ int main(int, char **) {
 
     SDL_GL_DestroyContext(gl_context);
     SDL_DestroyWindow(window);
+    if (decoder_thread.joinable()) {
+        audio_context.should_stop = true;
+        decoder_thread.join();
+    }
+    cleanup_audio(audio_context);
     SDL_Quit();
 
     return 0;

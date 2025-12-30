@@ -3,6 +3,8 @@
  */
 #include "audio.h"
 
+
+// TODO: add checks for if ALL things are initialized, currently missing some and assuming they will work.
 void decode_thread(audio_context_t &ctx) {
     while (!ctx.should_stop) {
         if (ctx.is_paused) {
@@ -166,7 +168,7 @@ void stop_decoding(audio_context_t &ctx, std::thread &thread) {
     }
 }
 
-void cleanup(audio_context_t &ctx) {
+void cleanup_audio(audio_context_t &ctx) {
     SDL_DestroyAudioStream(ctx.audio_stream);
     avcodec_free_context(&ctx.codec_context);
     avformat_close_input(&ctx.format_context);

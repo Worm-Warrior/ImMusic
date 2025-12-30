@@ -39,6 +39,6 @@ void stop_decoding(audio_context_t &ctx, std::thread &thread);
 // Controls for playback
 void toggle_play_pause(audio_context_t &ctx);
 void seek(audio_context_t &ctx, int seconds);
-void cleanup(audio_context_t &ctx);
+void cleanup_audio(audio_context_t &ctx);
 
 #endif //IMMUSIC_AUDIO_H
