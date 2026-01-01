@@ -28,6 +28,9 @@ struct audio_context_t {
     bool is_paused = false;
     bool should_stop = false;
 
+    std::atomic<bool> seek_req{false};
+    std::atomic<int> seek_seconds{0};
+
     std::mutex mutex;
 };
 // Core

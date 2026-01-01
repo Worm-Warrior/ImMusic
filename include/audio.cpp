@@ -3,11 +3,48 @@
  */
 #include "audio.h"
 
+#include <SDL_oldnames.h>
+
 
 // TODO: add checks for if ALL things are initialized, currently missing some and assuming they will work.
 void decode_thread(audio_context_t &ctx) {
     while (!ctx.should_stop) {
         if (ctx.is_paused) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
+
+        if (ctx.seek_req.load(std::memory_order_acquire)) {
+            std::lock_guard lock(ctx.mutex);
+
+            int seconds = ctx.seek_seconds.load(std::memory_order_relaxed);
+            AVStream *st = ctx.format_context->streams[ctx.audio_stream_index];
+
+            printf("%ds\n", seconds);
+
+            int64_t ts = av_rescale_q(
+                (int64_t) seconds * AV_TIME_BASE,
+                AV_TIME_BASE_Q,
+                st->time_base
+            );
+
+            if (av_seek_frame(ctx.format_context,
+                              ctx.audio_stream_index,
+                              ts,
+                              AVSEEK_FLAG_BACKWARD) >= 0) {
+                avcodec_flush_buffers(ctx.codec_context);
+                SDL_FlushAudioStream(ctx.audio_stream);
+                SDL_ClearAudioStream(ctx.audio_stream);
+                swr_init(ctx.swr_context);
+            } else {
+                fprintf(stderr, "error in av_seek_frame()\n");
+            }
+
+            ctx.seek_req.store(false, std::memory_order_release);
+            printf("seek if branch\n");
+        }
+
+        if (!ctx.format_context || !ctx.codec_context) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
@@ -20,10 +57,11 @@ void decode_thread(audio_context_t &ctx) {
 
             // Read ONE packet
             if (av_read_frame(ctx.format_context, packet) < 0) {
-                ctx.should_stop = true;
+                //ctx.should_stop = true;
                 av_packet_free(&packet);
                 av_frame_free(&frame);
-                break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
             }
 
             // Process that ONE packet if it's audio
@@ -37,6 +75,7 @@ void decode_thread(audio_context_t &ctx) {
                 }
 
                 // Decode all frames from this packet
+                // From what I can see, this will decode *everything* from the song at once.
                 while (avcodec_receive_frame(ctx.codec_context, frame) == 0) {
                     uint8_t *out_buffer[1];
                     int out_samples = av_rescale_rnd(
@@ -53,6 +92,7 @@ void decode_thread(audio_context_t &ctx) {
                         int audio_size = num_samples * ctx.codec_context->ch_layout.nb_channels * sizeof(float);
                         SDL_PutAudioStreamData(ctx.audio_stream, out_buffer[0], audio_size);
                     }
+                    printf("decoding while loop: %ld\n", frame->best_effort_timestamp);
                     av_free(out_buffer[0]);
                 }
             }
@@ -154,11 +194,8 @@ void toggle_play_pause(audio_context_t &ctx) {
 }
 
 void seek(audio_context_t &ctx, int seconds) {
-    std::lock_guard lock(ctx.mutex);
-    int64_t timestamp = seconds * AV_TIME_BASE;
-    av_seek_frame(ctx.format_context, ctx.audio_stream_index, timestamp, AVSEEK_FLAG_BACKWARD);
-    avcodec_flush_buffers(ctx.codec_context);
-    swr_init(ctx.swr_context);
+    ctx.seek_seconds.store(seconds, std::memory_order_relaxed);
+    ctx.seek_req.store(true, std::memory_order_release);
 }
 
 void start_decoding_thread(audio_context_t &ctx, std::thread &thread) {

@@ -217,6 +217,7 @@ void load_and_play_file(const std::filesystem::path &track_path) {
     audio_context.should_stop = false;
     audio_context.is_paused = false;
     start_decoding_thread(audio_context, decoder_thread);
+    app_state.seek_time = 0;
     debug_log.AddLog("[INFO]: Now playing: %s\n", track_path.filename().string().c_str());
 }
 
@@ -599,6 +600,7 @@ int main(int, char **) {
             } else if (ImGui::IsItemDeactivated() && app_state.is_seeking != false) {
                 debug_log.AddLog("Seeking released at: %d\n", app_state.seek_time);
                 app_state.is_seeking = false;
+                seek(audio_context, app_state.seek_time);
             }
             ImGui::SliderFloat("Volume", &app_state.cur_track_volume, 0, 1);
             ImGui::End();
