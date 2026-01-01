@@ -146,7 +146,11 @@ bool load_file(audio_context_t &ctx, const std::string &filepath) {
 
 void toggle_play_pause(audio_context_t &ctx) {
     ctx.is_paused = !ctx.is_paused;
-    SDL_PauseAudioDevice(SDL_GetAudioStreamDevice(ctx.audio_stream));
+    if (ctx.is_paused) {
+        SDL_PauseAudioDevice(SDL_GetAudioStreamDevice(ctx.audio_stream));
+    } else {
+        SDL_ResumeAudioDevice(SDL_GetAudioStreamDevice(ctx.audio_stream));
+    }
 }
 
 void seek(audio_context_t &ctx, int seconds) {

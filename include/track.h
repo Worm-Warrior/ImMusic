@@ -14,7 +14,7 @@ struct track_t {
     std::string album_name;
     // We don't need signed integers for these
     unsigned int track_number;
-    unsigned int duration; // Duration in seconds?
+    std::chrono::seconds duration;
 
     bool is_remote;
 };

@@ -18,13 +18,21 @@ struct app_state_t {
 
     std::filesystem::path cur_selected_folder;
     std::filesystem::path cur_media_folder;
-    std::filesystem::path cur_selected_track;
+    track_t cur_selected_track;
 
     std::filesystem::path cur_root_dir;
     std::filesystem::path new_root_dir;
 
-    bool show_media_view = true;
+    float cur_track_volume = 0.5;
+
+    int seek_time;
+    int seek_max;
+    int seek_min = 0;
+
+    bool show_media_view = false;
     bool is_running = true;
     bool is_remote = false;
+    bool show_player_control = false;
+    bool is_seeking = false;
 };
 #endif //IMMUSIC_APP_STATE_H

@@ -4,12 +4,14 @@
  * Demo file found in : include/imgui_demo.cpp
  * */
 
+#include <chrono>
 #include <iostream>
 #include "external/imgui.h"
 #include "external/imgui_impl_sdl3.h"
 #include "external/imgui_impl_opengl3.h"
 #include <SDL3/SDL_surface.h>
 #include <cstdio>
+#include <format>
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
 
@@ -272,7 +274,7 @@ void build_media_view(std::filesystem::path path) {
             if (t.album_name.empty()) {
                 t.album_name = "Unknown";
             }
-            t.duration = f.audioProperties()->lengthInSeconds();
+            t.duration = std::chrono::seconds(f.audioProperties()->lengthInSeconds());
             app_state.media_view_tracks.push_back(t);
             debug_log.AddLog("[INFO]: added track %s to the media_view_tracks\n", t.track_name.c_str());
         }
@@ -284,14 +286,15 @@ void display_tracks(const std::vector<track_t> &tracks) {
     for (const track_t &t: tracks) {
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-        const bool is_selected = (app_state.cur_selected_track == t.path);
+        const bool is_selected = (app_state.cur_selected_track.path == t.path);
 
         if ((ImGui::Selectable(("##" + t.path.string()).c_str(), is_selected,
                                ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) &&
             ImGui::IsMouseDoubleClicked(0)) {
-            app_state.cur_selected_track = t.path;
+            app_state.cur_selected_track = t;
             debug_log.AddLog("[INFO]: cur_selected_track: %s\n", t.path.c_str());
             load_and_play_file(t.path);
+            app_state.seek_max = t.duration.count();
         }
 
         ImGui::SameLine();
@@ -303,7 +306,14 @@ void display_tracks(const std::vector<track_t> &tracks) {
         ImGui::TableNextColumn();
         ImGui::Text("%s", t.album_name.c_str());
         ImGui::TableNextColumn();
-        ImGui::Text("%d", t.duration);
+
+        auto dur = t.duration;
+
+        auto mm = duration_cast<std::chrono::minutes>(dur);
+        auto ss = dur - mm;
+        ImGui::Text("%02lld:%02lld",
+                    static_cast<long long>(mm.count()),
+                    static_cast<long long>(ss.count()));
     }
 }
 
@@ -432,6 +442,8 @@ int main(int, char **) {
     style.ScaleAllSizes(main_scale);
     style.FontScaleDpi = main_scale;
 
+    app_state.new_root_dir = "/home/harry/Music";
+
     // Make the bg invisible
     style.Colors[ImGuiCol_DockingEmptyBg] = ImVec4(0, 0, 0, 0);
 
@@ -511,7 +523,9 @@ int main(int, char **) {
 
             // Handle if we have no root dir, ask the user to provide a music folder to have as root
             if (app_state.cur_root_dir.empty() && app_state.new_root_dir.empty()) {
-                if (tinyfd_messageBox("No music folder found","Select 'yes' to choose music folder\nSelect 'no' to close program" , "yesno", "question", 0)) {
+                if (tinyfd_messageBox("No music folder found",
+                                      "Select 'yes' to choose music folder\nSelect 'no' to close program", "yesno",
+                                      "question", 0)) {
                     const char *path = tinyfd_selectFolderDialog("Please Select Music Folder",
                                                                  app_state.cur_root_dir.c_str());
                     if (path) {
@@ -563,6 +577,30 @@ int main(int, char **) {
         if (show_frametime) {
             ImGui::Begin("frametime", &show_frametime);
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+            ImGui::End();
+        }
+        if (app_state.show_media_view) {
+            ImGui::Begin("Player Control");
+            ImGui::LabelText("", "%s", app_state.cur_selected_track.track_name.c_str());
+            if (ImGui::Button("Prev")) {
+                debug_log.AddLog("Pressed Prev\n");
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Play")) {
+                debug_log.AddLog("Pressed Play/Pause\n");
+                toggle_play_pause(audio_context);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Next")) {
+                debug_log.AddLog("Pressed Next\n");
+            }
+            if (ImGui::SliderInt("Time", &app_state.seek_time, app_state.seek_min, app_state.seek_max)) {
+                app_state.is_seeking = true;
+            } else if (ImGui::IsItemDeactivated() && app_state.is_seeking != false) {
+                debug_log.AddLog("Seeking released at: %d\n", app_state.seek_time);
+                app_state.is_seeking = false;
+            }
+            ImGui::SliderFloat("Volume", &app_state.cur_track_volume, 0, 1);
             ImGui::End();
         }
 
