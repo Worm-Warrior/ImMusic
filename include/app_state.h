@@ -14,6 +14,7 @@
 // * big -> small fields
 struct app_state_t {
     std::vector<track_t> media_view_tracks;
+    std::vector<track_t> playing_tracks;
     std::vector<file_tree_node_t> file_system_tree;
 
     std::filesystem::path cur_selected_folder;
@@ -28,6 +29,7 @@ struct app_state_t {
     int seek_time;
     int seek_max;
     int seek_min = 0;
+    uint32_t cur_track_index;
 
     bool show_media_view = false;
     bool is_running = true;

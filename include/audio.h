@@ -28,10 +28,13 @@ struct audio_context_t {
     bool is_paused = false;
     bool should_stop = false;
 
+    Sint64 frames = 0;
+
     std::atomic<bool> seek_req{false};
     std::atomic<int> seek_seconds{0};
-
     std::mutex mutex;
+
+    Sint32 bytes_per_frame;
 };
 // Core
 bool init_audio(audio_context_t &ctx, SDL_AudioSpec &spec);

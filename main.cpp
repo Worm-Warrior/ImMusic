@@ -187,11 +187,13 @@ void scan_folders(const std::filesystem::path &root, file_system_cache_t &cache)
     app_state.cur_root_dir = root;
 }
 
-void load_and_play_file(const std::filesystem::path &track_path) {
+void load_and_play_file(const track_t &track) {
     if (decoder_thread.joinable()) {
         audio_context.should_stop = true;
         decoder_thread.join();
     }
+
+    std::filesystem::path track_path = track.path;
 
     if (!load_file(audio_context, track_path.string())) {
         debug_log.AddLog("[ERROR]: Failed to load file %s\n", track_path.string().c_str());
@@ -204,6 +206,7 @@ void load_and_play_file(const std::filesystem::path &track_path) {
     spec.freq = audio_context.codec_context->sample_rate;
     spec.channels = audio_context.codec_context->ch_layout.nb_channels;
     spec.format = SDL_AUDIO_F32;
+    audio_context.bytes_per_frame = SDL_AUDIO_FRAMESIZE(spec);
 
     if (audio_context.audio_stream) {
         SDL_DestroyAudioStream(audio_context.audio_stream);
@@ -214,10 +217,15 @@ void load_and_play_file(const std::filesystem::path &track_path) {
         return;
     }
     has_audio_init = true;
+
+    SDL_AudioDeviceID device = SDL_GetAudioStreamDevice(audio_context.audio_stream);
+    SDL_SetAudioDeviceGain(device, 0.5f);
+
     audio_context.should_stop = false;
     audio_context.is_paused = false;
     start_decoding_thread(audio_context, decoder_thread);
     app_state.seek_time = 0;
+    app_state.seek_max = track.duration.count();
     debug_log.AddLog("[INFO]: Now playing: %s\n", track_path.filename().string().c_str());
 }
 
@@ -292,10 +300,20 @@ void display_tracks(const std::vector<track_t> &tracks) {
         if ((ImGui::Selectable(("##" + t.path.string()).c_str(), is_selected,
                                ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) &&
             ImGui::IsMouseDoubleClicked(0)) {
+            app_state.playing_tracks = app_state.media_view_tracks;
+            // Update the state so we have the right index(es).
             app_state.cur_selected_track = t;
-            debug_log.AddLog("[INFO]: cur_selected_track: %s\n", t.path.c_str());
-            load_and_play_file(t.path);
+            uint32_t index = 0;
+            for (const track_t &track: app_state.playing_tracks) {
+                if (track.path == t.path) {
+                    break;
+                }
+                index++;
+            }
+            app_state.cur_track_index = index;
+            load_and_play_file(t);
             app_state.seek_max = t.duration.count();
+            debug_log.AddLog("[INFO]: cur_selected_track: %s at index %d\n", t.path.c_str(), index);
         }
 
         ImGui::SameLine();
@@ -584,16 +602,45 @@ int main(int, char **) {
             ImGui::Begin("Player Control");
             ImGui::LabelText("", "%s", app_state.cur_selected_track.track_name.c_str());
             if (ImGui::Button("Prev")) {
-                debug_log.AddLog("Pressed Prev\n");
+                if (app_state.cur_track_index - 1 < app_state.playing_tracks.size()) {
+                    app_state.cur_track_index--;
+                    app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
+                    load_and_play_file(app_state.playing_tracks[app_state.cur_track_index]);
+                    debug_log.AddLog("[INFO]: Prev playing: %s\n", app_state.cur_selected_track.track_name.c_str());
+                } else {
+                    app_state.cur_track_index = app_state.playing_tracks.size() - 1;
+                    app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
+                    load_and_play_file(app_state.playing_tracks[app_state.cur_track_index]);
+                    debug_log.AddLog("[INFO]: No prev track looping to back to end: %s\n",
+                                     app_state.cur_selected_track.track_name.c_str());
+                }
             }
             ImGui::SameLine();
-            if (ImGui::Button("Play")) {
-                debug_log.AddLog("Pressed Play/Pause\n");
-                toggle_play_pause(audio_context);
+            if (audio_context.is_paused) {
+                if (ImGui::Button("Play###PlayPause")) {
+                    debug_log.AddLog("Pressed Play\n");
+                    toggle_play_pause(audio_context);
+                }
+            } else {
+                if (ImGui::Button("Pause###PlayPause")) {
+                    debug_log.AddLog("Pressed Pause\n");
+                    toggle_play_pause(audio_context);
+                }
             }
             ImGui::SameLine();
             if (ImGui::Button("Next")) {
-                debug_log.AddLog("Pressed Next\n");
+                if (app_state.cur_track_index + 1 < app_state.playing_tracks.size()) {
+                    app_state.cur_track_index++;
+                    app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
+                    load_and_play_file(app_state.playing_tracks[app_state.cur_track_index]);
+                    debug_log.AddLog("[INFO]: Next playing: %s\n", app_state.cur_selected_track.track_name.c_str());
+                } else {
+                    app_state.cur_track_index = 0;
+                    app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
+                    load_and_play_file(app_state.playing_tracks[app_state.cur_track_index]);
+                    debug_log.AddLog("[INFO]: No next track looping back to start: %s\n",
+                                     app_state.cur_selected_track.track_name.c_str());
+                }
             }
             if (ImGui::SliderInt("Time", &app_state.seek_time, app_state.seek_min, app_state.seek_max)) {
                 app_state.is_seeking = true;
@@ -602,12 +649,26 @@ int main(int, char **) {
                 app_state.is_seeking = false;
                 seek(audio_context, app_state.seek_time);
             }
-            ImGui::SliderFloat("Volume", &app_state.cur_track_volume, 0, 1);
+            if (ImGui::SliderFloat("Volume", &app_state.cur_track_volume, 0, 1)) {
+                debug_log.AddLog("Volume: %f\n", app_state.cur_track_volume);
+            }
             ImGui::End();
+            // TODO: make this update only if the volume has changed.
+            SDL_SetAudioDeviceGain(SDL_GetAudioStreamDevice(audio_context.audio_stream),
+                                   app_state.cur_track_volume);
         }
-
         // This is where we render all of our draw calls we generated above with the widgets
         ImGui::Render();
+
+        // Tracking time test.
+        Sint64 bytes = SDL_GetAudioStreamQueued(audio_context.audio_stream);
+        if (!audio_context.should_stop && bytes != -1) {
+            int seconds_left =
+                (double)bytes / (double)(audio_context.bytes_per_frame * audio_context.codec_context->sample_rate);
+
+            printf("%d\n", seconds_left);
+        }
+
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         SDL_GL_SwapWindow(window);
     }

@@ -92,7 +92,7 @@ void decode_thread(audio_context_t &ctx) {
                         int audio_size = num_samples * ctx.codec_context->ch_layout.nb_channels * sizeof(float);
                         SDL_PutAudioStreamData(ctx.audio_stream, out_buffer[0], audio_size);
                     }
-                    printf("decoding while loop: %ld\n", frame->best_effort_timestamp);
+                    //printf("decoding while loop: %ld\n", frame->best_effort_timestamp);
                     av_free(out_buffer[0]);
                 }
             }
