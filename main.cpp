@@ -660,12 +660,13 @@ int main(int, char **) {
         // This is where we render all of our draw calls we generated above with the widgets
         ImGui::Render();
 
-        // Tracking time test.
+        // !! Tracking time test remove later
         Sint64 bytes = SDL_GetAudioStreamQueued(audio_context.audio_stream);
         if (!audio_context.should_stop && bytes != -1) {
             int seconds_left =
-                (double)bytes / (double)(audio_context.bytes_per_frame * audio_context.codec_context->sample_rate);
-
+                    (double) bytes / (double) (audio_context.bytes_per_frame * audio_context.codec_context->
+                                               sample_rate);
+            app_state.seek_time = app_state.cur_selected_track.duration.count() - seconds_left;
             printf("%d\n", seconds_left);
         }
 
