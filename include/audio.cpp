@@ -22,8 +22,6 @@ void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
             int seconds = ctx.seek_seconds.load(std::memory_order_relaxed);
             AVStream *st = ctx.format_context->streams[ctx.audio_stream_index];
 
-            printf("%ds\n", seconds);
-
             int64_t ts = av_rescale_q(
                 (int64_t) seconds * AV_TIME_BASE,
                 AV_TIME_BASE_Q,

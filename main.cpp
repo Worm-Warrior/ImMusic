@@ -292,47 +292,53 @@ void build_media_view(std::filesystem::path path) {
 }
 
 void display_tracks(const std::vector<track_t> &tracks) {
-    for (const track_t &t: tracks) {
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        const bool is_selected = (app_state.cur_selected_track.path == t.path);
+    ImGuiListClipper clipper;
+    clipper.Begin(tracks.size());
+    while (clipper.Step()) {
+        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+            const track_t &t = tracks[i];
+            bool is_selected = (app_state.cur_selected_track.path == t.path);
 
-        if ((ImGui::Selectable(("##" + t.path.string()).c_str(), is_selected,
-                               ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) &&
-            ImGui::IsMouseDoubleClicked(0)) {
-            app_state.playing_tracks = app_state.media_view_tracks;
-            // Update the state so we have the right index(es).
-            app_state.cur_selected_track = t;
-            uint32_t index = 0;
-            for (const track_t &track: app_state.playing_tracks) {
-                if (track.path == t.path) {
-                    break;
+            ImGui::TableNextRow();
+
+            ImGui::TableSetColumnIndex(0);
+
+            if ((ImGui::Selectable(("##" + t.path.string()).c_str(), is_selected,
+                                   ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) &&
+                ImGui::IsMouseDoubleClicked(0)) {
+                app_state.playing_tracks = app_state.media_view_tracks;
+                // Update the state so we have the right index(es).
+                app_state.cur_selected_track = t;
+                uint32_t index = 0;
+                for (const track_t &track: app_state.playing_tracks) {
+                    if (track.path == t.path) {
+                        break;
+                    }
+                    index++;
                 }
-                index++;
+                app_state.cur_track_index = index;
+                load_and_play_file(t);
+                app_state.seek_max = t.duration.count();
+                debug_log.AddLog("[INFO]: cur_selected_track: %s at index %d\n", t.path.c_str(), index);
             }
-            app_state.cur_track_index = index;
-            load_and_play_file(t);
-            app_state.seek_max = t.duration.count();
-            debug_log.AddLog("[INFO]: cur_selected_track: %s at index %d\n", t.path.c_str(), index);
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%d", t.track_number);
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("%s", t.track_name.c_str());
+            ImGui::TableSetColumnIndex(3);
+            ImGui::Text("%s", t.artist_name.c_str());
+            ImGui::TableSetColumnIndex(4);
+            ImGui::Text("%s", t.album_name.c_str());
+            ImGui::TableSetColumnIndex(5);
+
+            auto dur = t.duration;
+
+            auto mm = duration_cast<std::chrono::minutes>(dur);
+            auto ss = dur - mm;
+            ImGui::Text("%02lld:%02lld",
+                        static_cast<long long>(mm.count()),
+                        static_cast<long long>(ss.count()));
         }
-
-        ImGui::SameLine();
-        ImGui::Text("%d", t.track_number);
-        ImGui::TableNextColumn();
-        ImGui::Text("%s", t.track_name.c_str());
-        ImGui::TableNextColumn();
-        ImGui::Text("%s", t.artist_name.c_str());
-        ImGui::TableNextColumn();
-        ImGui::Text("%s", t.album_name.c_str());
-        ImGui::TableNextColumn();
-
-        auto dur = t.duration;
-
-        auto mm = duration_cast<std::chrono::minutes>(dur);
-        auto ss = dur - mm;
-        ImGui::Text("%02lld:%02lld",
-                    static_cast<long long>(mm.count()),
-                    static_cast<long long>(ss.count()));
     }
 }
 
@@ -346,9 +352,9 @@ void show_media_view(std::filesystem::path path) {
     ImGuiTableFlags media_table_flags =
             ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
             ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable |
-            ImGuiTableFlags_Sortable;
+            ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY;
 
-    if (ImGui::BeginTable("media_view", 5, media_table_flags)) {
+    if (ImGui::BeginTable("media_view", 6, media_table_flags)) {
         ImGui::TableSetupColumn(
             "Track",
             ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortAscending |
@@ -427,7 +433,7 @@ int main(int, char **) {
 
     // More window config
     SDL_GL_MakeCurrent(window, gl_context);
-    SDL_GL_SetSwapInterval(1); // This is vsync
+    SDL_GL_SetSwapInterval(0); // This is vsync
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     SDL_ShowWindow(window);
 
@@ -615,6 +621,7 @@ int main(int, char **) {
                                      app_state.cur_selected_track.track_name.c_str());
                 }
             }
+
             ImGui::SameLine();
             if (audio_context.is_paused) {
                 if (ImGui::Button("Play###PlayPause")) {
@@ -648,6 +655,7 @@ int main(int, char **) {
                 debug_log.AddLog("Seeking released at: %d\n", app_state.seek_time);
                 app_state.is_seeking = false;
                 app_state.seek_queued = true;
+                // * This is here because if we don't delay by a frame we can get garbage, so delay a frame.
                 app_state.just_seeked.exchange(true);
                 audio_context.seek_seconds.store(app_state.seek_time, std::memory_order_relaxed);
                 audio_context.seek_req.store(true, std::memory_order_release);
@@ -669,7 +677,7 @@ int main(int, char **) {
             int64_t qd_samples = bytes / audio_context.bytes_per_frame;
 
             int64_t written =
-                audio_context.played_samples.load(std::memory_order_acquire);
+                    audio_context.played_samples.load(std::memory_order_acquire);
 
             int64_t played = written - qd_samples;
             if (played < 0) {
@@ -678,7 +686,7 @@ int main(int, char **) {
             }
 
             int64_t cur_seconds =
-                played / audio_context.codec_context->sample_rate;
+                    played / audio_context.codec_context->sample_rate;
             if (!app_state.seek_queued && !app_state.is_seeking) {
                 app_state.seek_time = cur_seconds;
             } else {
