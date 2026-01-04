@@ -11,6 +11,8 @@
 #include <string>
 #include <thread>
 
+#include "app_state.h"
+
 extern "C" {
 #include <ffmpeg/libavformat/avformat.h>
 #include <ffmpeg/libavcodec/avcodec.h>
@@ -28,10 +30,10 @@ struct audio_context_t {
     bool is_paused = false;
     bool should_stop = false;
 
-    Sint64 frames = 0;
+    std::atomic<uint64_t> played_samples;
 
     std::atomic<bool> seek_req{false};
-    std::atomic<int> seek_seconds{0};
+    std::atomic<int64_t> seek_seconds{0};
     std::mutex mutex;
 
     Sint32 bytes_per_frame;
@@ -39,12 +41,11 @@ struct audio_context_t {
 // Core
 bool init_audio(audio_context_t &ctx, SDL_AudioSpec &spec);
 bool load_file(audio_context_t &ctx, const std::string &filepath);
-void start_decoding_thread(audio_context_t &ctx, std::thread &thread);
+void start_decoding_thread(audio_context_t &ctx, std::thread &thread, app_state_t &app_state);
 void stop_decoding(audio_context_t &ctx, std::thread &thread);
 
 // Controls for playback
 void toggle_play_pause(audio_context_t &ctx);
-void seek(audio_context_t &ctx, int seconds);
 void cleanup_audio(audio_context_t &ctx);
 
 #endif //IMMUSIC_AUDIO_H

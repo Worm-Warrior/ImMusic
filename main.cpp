@@ -223,7 +223,7 @@ void load_and_play_file(const track_t &track) {
 
     audio_context.should_stop = false;
     audio_context.is_paused = false;
-    start_decoding_thread(audio_context, decoder_thread);
+    start_decoding_thread(audio_context, decoder_thread, app_state);
     app_state.seek_time = 0;
     app_state.seek_max = track.duration.count();
     debug_log.AddLog("[INFO]: Now playing: %s\n", track_path.filename().string().c_str());
@@ -647,7 +647,10 @@ int main(int, char **) {
             } else if (ImGui::IsItemDeactivated() && app_state.is_seeking != false) {
                 debug_log.AddLog("Seeking released at: %d\n", app_state.seek_time);
                 app_state.is_seeking = false;
-                seek(audio_context, app_state.seek_time);
+                app_state.seek_queued = true;
+                app_state.just_seeked.exchange(true);
+                audio_context.seek_seconds.store(app_state.seek_time, std::memory_order_relaxed);
+                audio_context.seek_req.store(true, std::memory_order_release);
             }
             if (ImGui::SliderFloat("Volume", &app_state.cur_track_volume, 0, 1)) {
                 debug_log.AddLog("Volume: %f\n", app_state.cur_track_volume);
@@ -662,12 +665,26 @@ int main(int, char **) {
 
         // !! Tracking time test remove later
         Sint64 bytes = SDL_GetAudioStreamQueued(audio_context.audio_stream);
-        if (!audio_context.should_stop && bytes != -1) {
-            int seconds_left =
-                    (double) bytes / (double) (audio_context.bytes_per_frame * audio_context.codec_context->
-                                               sample_rate);
-            app_state.seek_time = app_state.cur_selected_track.duration.count() - seconds_left;
-            printf("%d\n", seconds_left);
+        if (!audio_context.should_stop && bytes >= 0 && !app_state.just_seeked.exchange(false)) {
+            int64_t qd_samples = bytes / audio_context.bytes_per_frame;
+
+            int64_t written =
+                audio_context.played_samples.load(std::memory_order_acquire);
+
+            int64_t played = written - qd_samples;
+            if (played < 0) {
+                played = 0;
+                fprintf(stderr, "PLAYED WAS 0\n");
+            }
+
+            int64_t cur_seconds =
+                played / audio_context.codec_context->sample_rate;
+            if (!app_state.seek_queued && !app_state.is_seeking) {
+                app_state.seek_time = cur_seconds;
+            } else {
+                app_state.seek_queued = false;
+            }
+            // printf("%d\n", cur_seconds);
         }
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());

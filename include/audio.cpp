@@ -5,9 +5,11 @@
 
 #include <SDL_oldnames.h>
 
+#include "app_state.h"
+
 
 // TODO: add checks for if ALL things are initialized, currently missing some and assuming they will work.
-void decode_thread(audio_context_t &ctx) {
+void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
     while (!ctx.should_stop) {
         if (ctx.is_paused) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -33,15 +35,20 @@ void decode_thread(audio_context_t &ctx) {
                               ts,
                               AVSEEK_FLAG_BACKWARD) >= 0) {
                 avcodec_flush_buffers(ctx.codec_context);
-                SDL_FlushAudioStream(ctx.audio_stream);
+                //SDL_FlushAudioStream(ctx.audio_stream);
                 SDL_ClearAudioStream(ctx.audio_stream);
                 swr_init(ctx.swr_context);
+
+                ctx.played_samples.store(
+                    (int64_t) seconds * ctx.codec_context->sample_rate,
+                    std::memory_order_release
+                );
+                app_state.just_seeked.store(true, std::memory_order_release);
             } else {
                 fprintf(stderr, "error in av_seek_frame()\n");
             }
 
             ctx.seek_req.store(false, std::memory_order_release);
-            printf("seek if branch\n");
         }
 
         if (!ctx.format_context || !ctx.codec_context) {
@@ -91,8 +98,10 @@ void decode_thread(audio_context_t &ctx) {
                     if (num_samples > 0) {
                         int audio_size = num_samples * ctx.codec_context->ch_layout.nb_channels * sizeof(float);
                         SDL_PutAudioStreamData(ctx.audio_stream, out_buffer[0], audio_size);
+                        ctx.played_samples += frame->nb_samples;
                     }
                     //printf("decoding while loop: %ld\n", frame->best_effort_timestamp);
+                    //printf("%lu\n", ctx.played_samples.load());
                     av_free(out_buffer[0]);
                 }
             }
@@ -181,6 +190,7 @@ bool load_file(audio_context_t &ctx, const std::string &filepath) {
     swr_init(ctx.swr_context);
 
     ctx.should_stop = false;
+    ctx.played_samples = 0;
     return true;
 }
 
@@ -193,13 +203,8 @@ void toggle_play_pause(audio_context_t &ctx) {
     }
 }
 
-void seek(audio_context_t &ctx, int seconds) {
-    ctx.seek_seconds.store(seconds, std::memory_order_relaxed);
-    ctx.seek_req.store(true, std::memory_order_release);
-}
-
-void start_decoding_thread(audio_context_t &ctx, std::thread &thread) {
-    thread = std::thread(decode_thread, std::ref(ctx));
+void start_decoding_thread(audio_context_t &ctx, std::thread &thread, app_state_t &app_state) {
+    thread = std::thread(decode_thread, std::ref(ctx), std::ref(app_state));
 }
 
 void stop_decoding(audio_context_t &ctx, std::thread &thread) {

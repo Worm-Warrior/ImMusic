@@ -4,6 +4,7 @@
 
 #ifndef IMMUSIC_APP_STATE_H
 #define IMMUSIC_APP_STATE_H
+#include <atomic>
 #include <string>
 #include <filesystem>
 #include <vector>
@@ -31,10 +32,13 @@ struct app_state_t {
     int seek_min = 0;
     uint32_t cur_track_index;
 
+    std::atomic<bool> just_seeked = false;
+
     bool show_media_view = false;
     bool is_running = true;
     bool is_remote = false;
     bool show_player_control = false;
     bool is_seeking = false;
+    bool seek_queued = false;
 };
 #endif //IMMUSIC_APP_STATE_H
