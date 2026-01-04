@@ -1,25 +1,21 @@
-cmake_minimum_required(VERSION 4.1)
-project(ImMusic)
+cmake_minimum_required(VERSION 3.24)
+project(ImMusic LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(IMGUI_DIR external)
+set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/external)
 
-find_package(SDL3 REQUIRED)
-find_package(CURL REQUIRED)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(VLC REQUIRED libvlc)
-pkg_check_modules(TAGLIB REQUIRED taglib)
-
-pkg_check_modules(FFMPEG REQUIRED
-        libavformat
-        libavcodec
-        libavutil
-        libswresample
-)
+find_package(SDL3 CONFIG REQUIRED)
+find_package(SDL3_image CONFIG REQUIRED)
+find_package(CURL CONFIG REQUIRED)
+find_package(TagLib CONFIG REQUIRED)
+find_package(FFMPEG CONFIG REQUIRED) # via vcpkg
+find_package(OpenGL REQUIRED)
 
 add_executable(ImMusic
         main.cpp
+
         ${IMGUI_DIR}/imgui.cpp
         ${IMGUI_DIR}/imgui_demo.cpp
         ${IMGUI_DIR}/imgui_draw.cpp
@@ -27,36 +23,32 @@ add_executable(ImMusic
         ${IMGUI_DIR}/imgui_widgets.cpp
         ${IMGUI_DIR}/imgui_impl_sdl3.cpp
         ${IMGUI_DIR}/imgui_impl_opengl3.cpp
+
         include/app_state.h
         include/debug_log.h
         include/track.h
         include/audio.h
         include/audio.cpp
         include/file_tree.h
+
         external/tinyfiledialogs.h
         external/tinyfiledialogs.c
 )
 
 target_include_directories(ImMusic PRIVATE
         ${IMGUI_DIR}
-        ${VLC_INCLUDE_DIRS}
-        ${TAGLIB_INCLUDE_DIRS}
-        /usr/include/SDL3
-        /usr/include/SDL3/SDL3_image.h
-        ${FFMPEG_INCLUDE_DIRS}
 )
 
-target_link_libraries(
-        ImMusic
+target_link_libraries(ImMusic PRIVATE
         SDL3::SDL3
-        /usr/lib64/libSDL3_image.so
+        SDL3_image::SDL3_image
         CURL::libcurl
-        ${VLC_LIBRARIES}
-        ${TAGLIB_LIBRARIES}
-        GL
-        ${FFMPEG_LIBRARIES}
-)
+        TagLib::TagLib
 
-target_compile_options(ImMusic PRIVATE
-        ${FFMPEG_CFLAGS_OTHER}
+        FFMPEG::avformat
+        FFMPEG::avcodec
+        FFMPEG::avutil
+        FFMPEG::swresample
+
+        OpenGL::GL
 )
