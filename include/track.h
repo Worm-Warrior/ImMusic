@@ -16,16 +16,16 @@ struct track_t {
     unsigned int track_number;
     std::chrono::seconds duration;
 
-    bool is_remote;
+    // Not needed (for now)
 
-    // If they have the same filepath in the system, then they are the same.
-    bool operator==(const track_t &rhs) const {
-        return (path == rhs.path);
-    }
-
-    // Also need this one too.
-    bool operator!=(const track_t &rhs) const {
-        return !(*this == rhs);
-    }
+    // // If they have the same filepath in the system, then they are the same.
+    // bool operator==(const track_t &rhs) const {
+    //     return (path == rhs.path);
+    // }
+    //
+    // // Also need this one too.
+    // bool operator!=(const track_t &rhs) const {
+    //     return !(*this == rhs);
+    // }
 };
 #endif //IMMUSIC_TRACK_H
