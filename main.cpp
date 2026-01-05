@@ -267,7 +267,6 @@ void build_media_view(std::filesystem::path path) {
             TagLib::FileRef f((entry.path().string().c_str()));
             track_t t;
             t.path = entry.path();
-            t.is_remote = false;
             t.track_number = f.tag()->track();
             // Need true for unicode, else the asian characters don't show right on media view.
             t.track_name = std::string(f.tag()->title().to8Bit(true));
