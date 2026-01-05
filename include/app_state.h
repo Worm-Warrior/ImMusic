@@ -40,5 +40,6 @@ struct app_state_t {
     bool show_player_control = false;
     bool is_seeking = false;
     bool seek_queued = false;
+    bool should_play_next;
 };
 #endif //IMMUSIC_APP_STATE_H

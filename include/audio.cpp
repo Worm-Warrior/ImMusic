@@ -10,6 +10,9 @@
 
 // TODO: add checks for if ALL things are initialized, currently missing some and assuming they will work.
 void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
+    if (ctx.should_stop) {
+        printf("should_stop\n");
+    }
     while (!ctx.should_stop) {
         if (ctx.is_paused) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
