@@ -302,7 +302,6 @@ void display_tracks(const std::vector<track_t> &tracks) {
             ImGui::TableNextRow();
 
             ImGui::TableSetColumnIndex(0);
-
             if ((ImGui::Selectable(("##" + t.path.string()).c_str(), is_selected,
                                    ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) &&
                 ImGui::IsMouseDoubleClicked(0)) {
@@ -321,15 +320,15 @@ void display_tracks(const std::vector<track_t> &tracks) {
                 app_state.seek_max = t.duration.count();
                 debug_log.AddLog("[INFO]: cur_selected_track: %s at index %d\n", t.path.c_str(), index);
             }
-            ImGui::TableSetColumnIndex(1);
+            ImGui::SameLine();
             ImGui::Text("%d", t.track_number);
-            ImGui::TableSetColumnIndex(2);
+            ImGui::TableSetColumnIndex(1);
             ImGui::Text("%s", t.track_name.c_str());
-            ImGui::TableSetColumnIndex(3);
+            ImGui::TableSetColumnIndex(2);
             ImGui::Text("%s", t.artist_name.c_str());
-            ImGui::TableSetColumnIndex(4);
+            ImGui::TableSetColumnIndex(3);
             ImGui::Text("%s", t.album_name.c_str());
-            ImGui::TableSetColumnIndex(5);
+            ImGui::TableSetColumnIndex(4);
 
             auto dur = t.duration;
 
@@ -354,7 +353,7 @@ void show_media_view(std::filesystem::path path) {
             ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable |
             ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY;
 
-    if (ImGui::BeginTable("media_view", 6, media_table_flags)) {
+    if (ImGui::BeginTable("media_view", 5, media_table_flags)) {
         ImGui::TableSetupColumn(
             "Track",
             ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortAscending |
