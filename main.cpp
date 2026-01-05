@@ -42,6 +42,7 @@ static constexpr std::string_view valid_formats[] = {
 
 // TODO: this needs a big refactor to keep the main.cpp small and more readable.
 
+
 // * This will be our whole app state in one big FAT GLOBAL struct.
 static app_state_t app_state;
 // * This is also a global for logging anything in this file!
@@ -264,7 +265,11 @@ void build_media_view(std::filesystem::path path) {
             if (!is_valid) {
                 continue;
             }
+#ifdef _WIN32
+            TagLib::FileRef f((entry.path().wstring().c_str()));
+#else
             TagLib::FileRef f((entry.path().string().c_str()));
+#endif
             track_t t;
             t.path = entry.path();
             t.track_number = f.tag()->track();
