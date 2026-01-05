@@ -7,17 +7,17 @@
  */
 
 #include <mutex>
-#include <SDL_audio.h>
+#include <SDL3/SDL_audio.h>
 #include <string>
 #include <thread>
 
 #include "app_state.h"
 
 extern "C" {
-#include <ffmpeg/libavformat/avformat.h>
-#include <ffmpeg/libavcodec/avcodec.h>
-#include <ffmpeg/libswresample/swresample.h>
-#include <ffmpeg/libavutil/opt.h>
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libswresample/swresample.h>
+#include <libavutil/opt.h>
 }
 
 struct audio_context_t {

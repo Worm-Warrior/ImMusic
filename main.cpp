@@ -32,11 +32,6 @@
 #include "include/file_tree.h"
 #include "external/tinyfiledialogs.h"
 
-extern "C" {
-#include <ffmpeg/libavcodec/avcodec.h>
-#include <ffmpeg/libswresample/swresample.h>
-}
-
 static constexpr std::string_view valid_formats[] = {
     ".mp3", ".flac", ".wav", ".ogg", ".opus", ".aac", ".m4a"
 };
@@ -86,7 +81,7 @@ void draw_dockspace() {
             if (ImGui::MenuItem("Change root directory")) {
                 // Holy moly this is so simple and just works like this, thank God for OSS and platform layers!
                 const char *path = tinyfd_selectFolderDialog("Select Music Folder",
-                                                             app_state.cur_root_dir.c_str());
+                                                             app_state.cur_root_dir.string().c_str());
                 if (path) {
                     app_state.new_root_dir = std::string(path);
                 }
@@ -355,6 +350,7 @@ void show_media_view(std::filesystem::path path) {
             ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY;
 
     if (ImGui::BeginTable("media_view", 6, media_table_flags)) {
+        ImGui::TableSetupColumn("##Selected", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableSetupColumn(
             "Track",
             ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortAscending |
@@ -433,7 +429,7 @@ int main(int, char **) {
 
     // More window config
     SDL_GL_MakeCurrent(window, gl_context);
-    SDL_GL_SetSwapInterval(0); // This is vsync
+    SDL_GL_SetSwapInterval(1); // This is vsync
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     SDL_ShowWindow(window);
 
@@ -466,8 +462,6 @@ int main(int, char **) {
     ImGuiStyle &style = ImGui::GetStyle();
     style.ScaleAllSizes(main_scale);
     style.FontScaleDpi = main_scale;
-
-    app_state.new_root_dir = "/home/harry/Music";
 
     // Make the bg invisible
     style.Colors[ImGuiCol_DockingEmptyBg] = ImVec4(0, 0, 0, 0);
@@ -552,7 +546,7 @@ int main(int, char **) {
                                       "Select 'yes' to choose music folder\nSelect 'no' to close program", "yesno",
                                       "question", 0)) {
                     const char *path = tinyfd_selectFolderDialog("Please Select Music Folder",
-                                                                 app_state.cur_root_dir.c_str());
+                                                                 app_state.cur_root_dir.string().c_str());
                     if (path) {
                         app_state.new_root_dir = std::string(path);
                     }
