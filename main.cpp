@@ -659,7 +659,7 @@ int main(int, char **) {
                 audio_context.seek_seconds.store(app_state.seek_time, std::memory_order_relaxed);
                 audio_context.seek_req.store(true, std::memory_order_release);
             }
-            if (ImGui::SliderFloat("Volume", &app_state.cur_track_volume, 0, 1)) {
+            if (ImGui::SliderFloat("Volume", &app_state.cur_track_volume, 0, 1, "%.2f")) {
                 debug_log.AddLog("Volume: %f\n", app_state.cur_track_volume);
             }
             ImGui::End();
