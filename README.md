@@ -9,4 +9,4 @@ The general idea is to make a fast and responsive music player that can play fro
 I wanted to make this because I was not very happy working with Qt for something so simple, so I switched to ImGui docking branch and it is exactly what I wanted.
 
 ## Screenshot(s)
-<img width="2050" height="1166" alt="image" src="https://github.com/user-attachments/assets/ffca35b1-3629-4b03-94d2-4d5f181f9787" />
+<img width="2050" height="1166" alt="image" src="https://github.com/user-attachments/assets/e930e19c-0e50-4a55-8e56-5c4b702723cc" />
