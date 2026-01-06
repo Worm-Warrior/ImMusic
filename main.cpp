@@ -711,7 +711,7 @@ int main(int, char **) {
                 app_state.seek_queued = false;
             }
 
-            if (cur_seconds >= app_state.cur_selected_track.duration.count() && app_state.should_play_next) {
+            if (cur_seconds >= app_state.cur_selected_track.duration.count() && (app_state.cur_track_index+1 < app_state.media_view_tracks.size())) {
                 app_state.cur_track_index++;
                 app_state.cur_selected_track = app_state.media_view_tracks[app_state.cur_track_index];
                 load_and_play_file(app_state.cur_selected_track);
