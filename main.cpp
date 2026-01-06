@@ -321,11 +321,6 @@ void display_tracks(const std::vector<track_t> &tracks) {
                     }
                     index++;
                 }
-                if (index < tracks.size()-1) {
-                    app_state.should_play_next = true;
-                } else {
-                    app_state.should_play_next = false;
-                }
                 app_state.cur_track_index = index;
                 load_and_play_file(t);
                 app_state.seek_max = t.duration.count();
