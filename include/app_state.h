@@ -34,11 +34,13 @@ struct app_state_t {
 
     std::atomic<bool> just_seeked = false;
 
+    bool show_file_system_window = true;
     bool show_media_view = false;
     bool is_running = true;
     bool is_remote = false;
     bool show_player_control = false;
     bool is_seeking = false;
     bool seek_queued = false;
+    bool show_remote_browser = false;
 };
 #endif //IMMUSIC_APP_STATE_H

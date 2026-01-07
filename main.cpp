@@ -80,7 +80,6 @@ void draw_dockspace() {
     ImGui::Begin("Main View", nullptr, flags);
 
     // Main menu bar logic goes here.
-    // TODO: Add the dropdown menus I want and code the logic.
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("Menu")) {
             if (ImGui::MenuItem("Change root directory")) {
@@ -93,7 +92,19 @@ void draw_dockspace() {
             }
             if (ImGui::MenuItem("Search")) {
             }
+            if (ImGui::MenuItem("Local File System View", NULL, &app_state.show_file_system_window)) {
+                if (app_state.show_remote_browser) {
+                    app_state.show_remote_browser = !app_state.show_remote_browser;
+                }
+            }
+            if (ImGui::MenuItem("Remote View", NULL, &app_state.show_remote_browser)) {
+                if (app_state.show_file_system_window) {
+                    app_state.show_file_system_window = !app_state.show_file_system_window;
+                }
+            }
+            ImGui::Separator();
             if (ImGui::MenuItem("Exit")) { app_state.is_running = false; }
+
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
@@ -104,9 +115,6 @@ void draw_dockspace() {
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(3);
 }
-
-
-
 
 /* *
  * === FILE SYSTEM PARSING ===
@@ -230,6 +238,49 @@ void load_and_play_file(const track_t &track) {
     app_state.seek_time = 0;
     app_state.seek_max = track.duration.count();
     debug_log.AddLog("[INFO]: Now playing: %s\n", track_path.filename().string().c_str());
+}
+
+void draw_file_system_window() {
+    ImGui::Begin("Local File System", &app_state.show_file_system_window);
+    static ImGuiTableFlags table_flags =
+            ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
+
+    static ImGuiTreeNodeFlags tree_node_flags_base =
+            ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_DrawLinesFull |
+            ImGuiTreeNodeFlags_OpenOnDoubleClick;
+
+    // Handle if we have no root dir, ask the user to provide a music folder to have as root
+    if (app_state.cur_root_dir.empty() && app_state.new_root_dir.empty()) {
+        if (tinyfd_messageBox("No music folder found",
+                              "Select 'yes' to choose music folder\nSelect 'no' to close program", "yesno",
+                              "question", 0)) {
+            const char *path = tinyfd_selectFolderDialog("Please Select Music Folder",
+                                                         app_state.cur_root_dir.c_str());
+            if (path) {
+                app_state.new_root_dir = std::string(path);
+            }
+        } else {
+            fprintf(stderr, "User selected not to choose music folder!\n");
+            exit(2);
+        }
+    }
+
+    if (ImGui::BeginTable("file_system", 2, table_flags)) {
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableHeadersRow();
+
+        if (app_state.new_root_dir != app_state.cur_root_dir) {
+            scan_folders(app_state.new_root_dir, file_system_cache);
+        }
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        render_node(0, file_system_cache);
+
+        ImGui::EndTable();
+    }
+    ImGui::End();
 }
 
 /* *
@@ -551,7 +602,6 @@ int main(int, char **) {
 
     bool show_demo_window = false;
     bool show_log = false;
-    bool show_file_system_window = true;
     bool show_frametime = false;
 
     ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.15f, 1.0f);
@@ -574,8 +624,10 @@ int main(int, char **) {
             }
         }
 
+        // !!! This does not work on wayland, find a way to limit framerate on minimized/lose focus !!!
         // So don't do anything on a minimized window!
         if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) {
+            printf("minimized\n");
             SDL_Delay(10);
             continue;
         }
@@ -609,48 +661,8 @@ int main(int, char **) {
         }
 
         // * This is the file browser window stuff
-        {
-            ImGui::Begin("Local File System", &show_file_system_window);
-            // TODO: Refactor out to a function?
-            static ImGuiTableFlags table_flags =
-                    ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
-                    ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
-
-            static ImGuiTreeNodeFlags tree_node_flags_base =
-                    ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_DrawLinesFull |
-                    ImGuiTreeNodeFlags_OpenOnDoubleClick;
-
-            // Handle if we have no root dir, ask the user to provide a music folder to have as root
-            if (app_state.cur_root_dir.empty() && app_state.new_root_dir.empty()) {
-                if (tinyfd_messageBox("No music folder found",
-                                      "Select 'yes' to choose music folder\nSelect 'no' to close program", "yesno",
-                                      "question", 0)) {
-                    const char *path = tinyfd_selectFolderDialog("Please Select Music Folder",
-                                                                 app_state.cur_root_dir.c_str());
-                    if (path) {
-                        app_state.new_root_dir = std::string(path);
-                    }
-                } else {
-                    fprintf(stderr, "User selected not to choose music folder!\n");
-                    return 0;
-                }
-            }
-
-            if (ImGui::BeginTable("file_system", 2, table_flags)) {
-                ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide);
-                ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
-                ImGui::TableHeadersRow();
-
-                if (app_state.new_root_dir != app_state.cur_root_dir) {
-                    scan_folders(app_state.new_root_dir, file_system_cache);
-                }
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                render_node(0, file_system_cache);
-
-                ImGui::EndTable();
-            }
-            ImGui::End();
+        if (app_state.show_file_system_window && !app_state.show_remote_browser) {
+            draw_file_system_window();
         }
 
         /* *
@@ -684,7 +696,8 @@ int main(int, char **) {
         // This is where we render all of our draw calls we generated above with the widgets
         ImGui::Render();
 
-        // !! Tracking time test remove later
+        // TODO: Refactor out into function?
+        // Right now this is what keeps track of the current playback time.
         Sint64 bytes = SDL_GetAudioStreamQueued(audio_context.audio_stream);
         if (!audio_context.should_stop && bytes >= 0 && !app_state.just_seeked.exchange(false)) {
             int64_t qd_samples = bytes / audio_context.bytes_per_frame;
@@ -706,9 +719,10 @@ int main(int, char **) {
                 app_state.seek_queued = false;
             }
 
-            if (cur_seconds >= app_state.cur_selected_track.duration.count() && (app_state.cur_track_index+1 < app_state.media_view_tracks.size())) {
+            if (cur_seconds >= app_state.cur_selected_track.duration.count() && (
+                    app_state.cur_track_index + 1 < app_state.playing_tracks.size())) {
                 app_state.cur_track_index++;
-                app_state.cur_selected_track = app_state.media_view_tracks[app_state.cur_track_index];
+                app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
                 load_and_play_file(app_state.cur_selected_track);
                 debug_log.AddLog("[INFO]: Autoplaying %s", app_state.cur_selected_track.track_name.c_str());
             }
