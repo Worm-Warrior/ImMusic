@@ -25,6 +25,11 @@ struct app_state_t {
     std::filesystem::path cur_root_dir;
     std::filesystem::path new_root_dir;
 
+    std::string server_url = "http://192.168.4.165:4533/rest/getArtists.view?u=admin&p=rat&c=ImMusic&v=1.16.1&f=json";
+    std::string server_base_addr = "http://192.168.4.165:4535";
+    std::string server_username = "admin";
+    std::string server_password = "rat";
+
     float cur_track_volume = 0.5;
 
     int seek_time;
@@ -42,5 +47,6 @@ struct app_state_t {
     bool is_seeking = false;
     bool seek_queued = false;
     bool show_remote_browser = false;
+    bool show_frametime;
 };
 #endif //IMMUSIC_APP_STATE_H

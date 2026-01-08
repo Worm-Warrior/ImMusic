@@ -495,6 +495,23 @@ void draw_player_controls() {
                            app_state.cur_track_volume);
 }
 
+
+// * === FRAMETIME TEXT ===
+void draw_frametime() {
+    ImGuiIO &io = ImGui::GetIO();
+    ImGui::Begin("frametime", &app_state.show_frametime);
+
+    float avg_ms = 1000.0f / io.Framerate;
+    ImGui::Text("Average %.3f ms/frame (%.1f FPS)", avg_ms, io.Framerate);
+
+    ImGui::End();
+}
+
+// * === REMOTE BROWSER ===
+void draw_remote_browser() {
+
+}
+
 // * === ENTRY POINT ===
 int main(int, char **) {
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_AUDIO)) {
@@ -602,7 +619,7 @@ int main(int, char **) {
 
     bool show_demo_window = false;
     bool show_log = false;
-    bool show_frametime = false;
+    app_state.show_frametime = false;
 
     ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.15f, 1.0f);
     glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
@@ -657,12 +674,16 @@ int main(int, char **) {
         }
 
         if (ImGui::IsKeyReleased(ImGuiKey_F3)) {
-            show_frametime = !show_frametime;
+            app_state.show_frametime = !app_state.show_frametime;
         }
 
         // * This is the file browser window stuff
         if (app_state.show_file_system_window && !app_state.show_remote_browser) {
             draw_file_system_window();
+        }
+
+        if (app_state.show_remote_browser && !app_state.show_file_system_window) {
+            draw_remote_browser();
         }
 
         /* *
@@ -675,7 +696,7 @@ int main(int, char **) {
             build_media_view(app_state.cur_selected_folder);
             debug_log.AddLog("[INFO]: %lu tracks in the list\n", app_state.media_view_tracks.size());
         }
-        if (app_state.show_media_view) {
+        if (app_state.show_media_view && !app_state.show_remote_browser) {
             show_media_view(app_state.cur_selected_folder);
         }
 
@@ -685,10 +706,8 @@ int main(int, char **) {
             debug_log.Draw("Debug Log", &show_log);
         }
 
-        if (show_frametime) {
-            ImGui::Begin("frametime", &show_frametime);
-            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-            ImGui::End();
+        if (app_state.show_frametime) {
+            draw_frametime();
         }
         if (app_state.show_media_view) {
             draw_player_controls();
