@@ -36,6 +36,7 @@ add_executable(ImMusic
         external/tinyfiledialogs.h
         external/tinyfiledialogs.c
         external/simdjson.cpp
+        include/remote_tree.h
 )
 
 target_include_directories(ImMusic PRIVATE

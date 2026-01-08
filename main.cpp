@@ -508,6 +508,10 @@ void draw_frametime() {
 }
 
 // * === REMOTE BROWSER ===
+
+void build_remote_browser() {
+}
+
 void draw_remote_browser() {
     ImGui::Begin("Remote Browser", &app_state.show_remote_browser);
     ImGuiTableFlags table_flags =
@@ -519,10 +523,12 @@ void draw_remote_browser() {
             ImGuiTreeNodeFlags_OpenOnDoubleClick;
 
     if (ImGui::BeginTable("remote_browser", 3, table_flags)) {
-        ImGui::TableSetupColumn("Artist Name", ImGuiTableColumnFlags_NoHide);
-        ImGui::TableSetupColumn("Album Count", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide);
+        ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableHeadersRow();
+
+        build_remote_browser();
 
         ImGui::EndTable();
     }
