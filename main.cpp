@@ -509,7 +509,24 @@ void draw_frametime() {
 
 // * === REMOTE BROWSER ===
 void draw_remote_browser() {
+    ImGui::Begin("Remote Browser", &app_state.show_remote_browser);
+    ImGuiTableFlags table_flags =
+            ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
 
+    ImGuiTreeNodeFlags tree_node_flags_base =
+            ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_DrawLinesFull |
+            ImGuiTreeNodeFlags_OpenOnDoubleClick;
+
+    if (ImGui::BeginTable("remote_browser", 3, table_flags)) {
+        ImGui::TableSetupColumn("Artist Name", ImGuiTableColumnFlags_NoHide);
+        ImGui::TableSetupColumn("Album Count", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableHeadersRow();
+
+        ImGui::EndTable();
+    }
+    ImGui::End();
 }
 
 // * === ENTRY POINT ===
@@ -682,6 +699,7 @@ int main(int, char **) {
             draw_file_system_window();
         }
 
+        // * Remote Browser
         if (app_state.show_remote_browser && !app_state.show_file_system_window) {
             draw_remote_browser();
         }
@@ -712,6 +730,7 @@ int main(int, char **) {
         if (app_state.show_media_view) {
             draw_player_controls();
         }
+
         // This is where we render all of our draw calls we generated above with the widgets
         ImGui::Render();
 
