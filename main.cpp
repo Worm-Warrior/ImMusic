@@ -28,9 +28,11 @@
 #include <taglib/fileref.h>
 #include <taglib/tag.h>
 #include <taglib/audioproperties.h>
-#include <algorithm>
 #include "include/file_tree.h"
 #include "external/tinyfiledialogs.h"
+#include "include/network.h"
+#include <curl/curl.h>
+#include "external/simdjson.h"
 
 extern "C" {
 #include <ffmpeg/libavcodec/avcodec.h>
@@ -509,11 +511,153 @@ void draw_frametime() {
 
 // * === REMOTE BROWSER ===
 
-void build_remote_browser() {
+// This function uses network_response and network_callback defined in network.h
+void rebuild_remote_browser() {
+    std::string url = "http://192.168.4.165:4533/rest/getArtists.view?u=admin&p=rat&c=ImMusic&v=1.16.1&f=json";
+    network_response res = {0};
+
+    CURL *curl = curl_easy_init();
+
+    if (!curl) {
+        exit(1);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+    CURLcode result = curl_easy_perform(curl);
+
+    if (result != CURLE_OK) {
+        exit(1);
+    }
+
+    simdjson::ondemand::parser json_parser;
+    simdjson::padded_string data(res.response, res.size);
+    simdjson::ondemand::document doc = json_parser.iterate(data);
+    simdjson::ondemand::object obj = doc.get_object();
+
+    simdjson::ondemand::array index_array = obj["subsonic-response"]["artists"]["index"].get_array();
+
+    for (auto artist_array: index_array) {
+        simdjson::ondemand::array artist = artist_array["artist"].get_array();
+
+        for (auto artist_obj: artist) {
+            std::string_view name = artist_obj["name"].get_string();
+            std::string_view id = artist_obj["id"].get_string();
+            int64_t album_count = artist_obj["albumCount"].get_int64();
+
+            artist_node node;
+            node.artist_name = std::string(name);
+            node.artist_id = std::string(id);
+            node.album_count = album_count;
+
+            app_state.artists.push_back(node);
+            debug_log.AddLog("[INFO]: Added %s to the artist list\n", node.artist_name.c_str());
+        }
+    }
+
+    debug_log.AddLog("[INFO]: Added %lu artists\n", app_state.artists.size());
+    free(res.response);
+    curl_easy_cleanup(curl);
+}
+
+void fetch_artist_albums(artist_node &artist) {
+    std::string url = std::format(
+        "http://192.168.4.165:4533/rest/getArtist.view?id={}&u=admin&p=rat&c=ImMusic&v=1.16.1&f=json",
+        artist.artist_id);
+    network_response res = {0};
+
+    CURL *curl = curl_easy_init();
+
+    if (!curl) {
+        exit(1);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+    CURLcode result = curl_easy_perform(curl);
+
+    if (result != CURLE_OK) {
+        exit(1);
+    }
+    simdjson::ondemand::parser json_parser;
+    simdjson::padded_string data(res.response, res.size);
+    simdjson::ondemand::document doc = json_parser.iterate(data);
+    simdjson::ondemand::object obj = doc.get_object();
+
+    simdjson::ondemand::array album_array = obj["subsonic-response"]["artist"]["album"].get_array();
+
+    for (auto album: album_array) {
+        album_node a;
+        std::string_view id = album["id"].get_string();
+        std::string_view name = album["name"].get_string();
+        a.album_id = std::string(id);
+        a.album_name = std::string(name);
+        a.track_count = album["songCount"].get_int64();
+
+        artist.albums.push_back(a);
+    }
+
+    free(res.response);
+    curl_easy_cleanup(curl);
+}
+
+
+void draw_remote_tree(std::vector<artist_node> &artists) {
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_OpenOnDoubleClick |
+                               ImGuiTreeNodeFlags_OpenOnArrow;
+
+    for (auto& a: artists) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+
+        bool open = ImGui::TreeNodeEx(a.artist_name.c_str(), flags);
+
+        if (ImGui::IsItemClicked() && a.artist_id != app_state.cur_artist) {
+            app_state.cur_artist = a.artist_id;
+            debug_log.AddLog("[INFO]: selected artist with id %s\n", a.artist_id.c_str());
+        }
+
+        ImGui::TableNextColumn();
+        ImGui::Text("%d", a.album_count);
+        ImGui::TableNextColumn();
+        ImGui::Text("Artist");
+
+        if (open) {
+            if (a.albums.empty()) {
+                debug_log.AddLog("[INFO]: Fetching albums for %s\n", a.artist_name.c_str());
+                fetch_artist_albums(a);
+            }
+
+            for (auto album: a.albums) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TreeNodeEx(album.album_name.c_str(),
+                                  ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet |
+                                  ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAllColumns);
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", album.track_count);
+                ImGui::TableNextColumn();
+                ImGui::Text("Album");
+            }
+            ImGui::TreePop();
+        }
+    }
 }
 
 void draw_remote_browser() {
+    if (app_state.should_rebuild_remote_browser) {
+        debug_log.AddLog("[INFO]: Rebuilding remote artists list\n");
+        debug_log.AddLog("[INFO]: New URL: %s\n", app_state.server_url.c_str());
+        rebuild_remote_browser();
+        app_state.should_rebuild_remote_browser = false;
+    }
+
     ImGui::Begin("Remote Browser", &app_state.show_remote_browser);
+
     ImGuiTableFlags table_flags =
             ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
             ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
@@ -527,9 +671,9 @@ void draw_remote_browser() {
         ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableHeadersRow();
-
-        build_remote_browser();
-
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        draw_remote_tree(app_state.artists);
         ImGui::EndTable();
     }
     ImGui::End();

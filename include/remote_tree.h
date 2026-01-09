@@ -17,14 +17,10 @@ struct album_node {
 };
 
 struct artist_node {
-    std::vector<album_node>;
+    std::vector<album_node> albums;
     std::string artist_name;
     std::string artist_id;
     uint32_t album_count;
-};
-
-struct remote_tree {
-    std::vector<artist_node>;
 };
 
 #define IMMUSIC_REMOTE_TREE_H
