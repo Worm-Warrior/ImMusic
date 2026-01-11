@@ -5,20 +5,10 @@
 #ifndef IMMUSIC_TRACK_H
 #define IMMUSIC_TRACK_H
 #include <filesystem>
-#include <variant>
-
-struct remote_id_t {
-    // The remote id can be an array of bytes, not a string.
-    std::array<uint8_t, 16> bytes;
-};
-
-using track_location = std::variant<std::filesystem::path, remote_id_t>;
 
 // * big -> small fields
 struct track_t {
     std::filesystem::path path;
-
-    track_location location;
 
     std::string track_name;
     std::string artist_name;
