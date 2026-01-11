@@ -29,6 +29,8 @@ struct app_state_t {
     std::string server_base_addr = "http://192.168.4.165:4535";
     std::string server_username = "admin";
     std::string server_password = "rat";
+    std::string cur_album;
+    std::string selected_album;
 
     std::string cur_artist;
 

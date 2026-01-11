@@ -248,10 +248,6 @@ void draw_file_system_window() {
             ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
             ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
 
-    static ImGuiTreeNodeFlags tree_node_flags_base =
-            ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_DrawLinesFull |
-            ImGuiTreeNodeFlags_OpenOnDoubleClick;
-
     // Handle if we have no root dir, ask the user to provide a music folder to have as root
     if (app_state.cur_root_dir.empty() && app_state.new_root_dir.empty()) {
         if (tinyfd_messageBox("No music folder found",
@@ -290,7 +286,6 @@ void draw_file_system_window() {
  * This will build up our media view.
  *
  * Ideas for later:
- * Use the clipping from ImGui to load only sections at a time.
  * Spread the rendering across more than one frame, so we don't get frame time spikes.
  * Maybe pass something smaller than the whole path of the file to the ImGui::Selectable().
  * */
@@ -400,7 +395,7 @@ void display_tracks(const std::vector<track_t> &tracks) {
     }
 }
 
-void show_media_view(std::filesystem::path path) {
+void draw_media_view(std::filesystem::path path) {
     if (path.empty()) {
         app_state.show_media_view = false;
         return;
@@ -610,7 +605,7 @@ void draw_remote_tree(std::vector<artist_node> &artists) {
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_OpenOnDoubleClick |
                                ImGuiTreeNodeFlags_OpenOnArrow;
 
-    for (auto& a: artists) {
+    for (auto &a: artists) {
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
 
@@ -638,6 +633,11 @@ void draw_remote_tree(std::vector<artist_node> &artists) {
                 ImGui::TreeNodeEx(album.album_name.c_str(),
                                   ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet |
                                   ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAllColumns);
+                if (ImGui::IsItemClicked() && album.album_id != app_state.cur_album) {
+                    debug_log.AddLog("[INFO]: Selected album %s\n", album.album_name.c_str());
+                    app_state.selected_album = album.album_id;
+                    app_state.show_remote_media_view = true;
+                }
                 ImGui::TableNextColumn();
                 ImGui::Text("%d", album.track_count);
                 ImGui::TableNextColumn();
@@ -662,10 +662,6 @@ void draw_remote_browser() {
             ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
             ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
 
-    ImGuiTreeNodeFlags tree_node_flags_base =
-            ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_DrawLinesFull |
-            ImGuiTreeNodeFlags_OpenOnDoubleClick;
-
     if (ImGui::BeginTable("remote_browser", 3, table_flags)) {
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide);
         ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed);
@@ -674,6 +670,73 @@ void draw_remote_browser() {
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
         draw_remote_tree(app_state.artists);
+        ImGui::EndTable();
+    }
+    ImGui::End();
+}
+
+// * === REMOTE MEDIA VIEW ===
+void build_remote_media_view(std::string album_id) {
+    std::string url = std::format(
+        "http://192.168.4.165:4533/rest/getAlbum.view?id={}&u=admin&p=rat&c=ImMusic&v=1.16.1&f=json", album_id);
+
+    network_response res = {0};
+    CURL *curl = curl_easy_init();
+
+    if (!curl) {
+        exit(1);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+    CURLcode result = curl_easy_perform(curl);
+
+    if (result != CURLE_OK) {
+        exit(1);
+    }
+    simdjson::ondemand::parser json_parser;
+    simdjson::padded_string data(res.response, res.size);
+    simdjson::ondemand::document doc = json_parser.iterate(data);
+    simdjson::ondemand::object obj = doc.get_object();
+
+    simdjson::ondemand::array song_array = obj["subsonic-response"]["album"]["song"].get_array();
+
+    for (auto s : song_array) {
+        track_t t;
+        t.album_name = std::string(s["album"].get_string().value());
+        t.artist_name = std::string(s["artist"].get_string().value());
+        t.track_name = std::string(s["title"].get_string().value());
+        t.track_number= s["track"].get_uint64();
+        t.duration = std::chrono::seconds(s["duration"].get_uint64().value());
+        std::cout << t.duration << "\n";
+    }
+}
+
+void draw_remote_media_view() {
+    if (app_state.cur_album != app_state.selected_album) {
+        app_state.cur_album = app_state.selected_album;
+        build_remote_media_view(app_state.cur_album);
+        debug_log.AddLog("[INFO]: Rebuilding remote media view\n");
+    }
+    ImGui::Begin("Remote Media View", &app_state.show_remote_media_view);
+    ImGuiTableFlags media_table_flags =
+            ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable |
+            ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY;
+
+    if (ImGui::BeginTable("media_view_remote", 5, media_table_flags)) {
+        ImGui::TableSetupColumn(
+            "Track",
+            ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortAscending |
+            ImGuiTableColumnFlags_DefaultSort, 80.0f);
+        ImGui::TableSetupColumn("Title", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Artist", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Album", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Duration", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableHeadersRow();
+        display_tracks(app_state.media_view_tracks);
         ImGui::EndTable();
     }
     ImGui::End();
@@ -854,6 +917,11 @@ int main(int, char **) {
             draw_remote_browser();
         }
 
+        // * Remote Media View
+        if (app_state.show_remote_media_view && !app_state.show_media_view) {
+            draw_remote_media_view();
+        }
+
         /* *
          * If the current selected folder is NOT the same as the current media folder, then we need to rebuild the
          * media player!
@@ -865,7 +933,7 @@ int main(int, char **) {
             debug_log.AddLog("[INFO]: %lu tracks in the list\n", app_state.media_view_tracks.size());
         }
         if (app_state.show_media_view && !app_state.show_remote_browser) {
-            show_media_view(app_state.cur_selected_folder);
+            draw_media_view(app_state.cur_selected_folder);
         }
 
         // * Simple log console copied from the examples in /include/imgui_demo.cpp
