@@ -710,13 +710,15 @@ void build_remote_media_view(std::string album_id) {
         t.track_name = std::string(s["title"].get_string().value());
         t.track_number= s["track"].get_uint64();
         t.duration = std::chrono::seconds(s["duration"].get_uint64().value());
-        std::cout << t.duration << "\n";
+        t.song_id = std::string(s["id"].get_string().value());
+        app_state.media_view_tracks.push_back(t);
     }
 }
 
 void draw_remote_media_view() {
     if (app_state.cur_album != app_state.selected_album) {
         app_state.cur_album = app_state.selected_album;
+        app_state.media_view_tracks.clear();
         build_remote_media_view(app_state.cur_album);
         debug_log.AddLog("[INFO]: Rebuilding remote media view\n");
     }

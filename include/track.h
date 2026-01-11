@@ -9,6 +9,7 @@
 // * big -> small fields
 struct track_t {
     std::filesystem::path path;
+    std::string song_id;
 
     std::string track_name;
     std::string artist_name;
