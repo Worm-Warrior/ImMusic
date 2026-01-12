@@ -87,7 +87,7 @@ void draw_dockspace() {
             if (ImGui::MenuItem("Change root directory")) {
                 // Holy moly this is so simple and just works like this, thank God for OSS and platform layers!
                 const char *path = tinyfd_selectFolderDialog("Select Music Folder",
-                                                             app_state.cur_root_dir.c_str());
+                                                             app_state.cur_root_dir.string().c_str());
                 if (path) {
                     app_state.new_root_dir = std::string(path);
                 }
@@ -261,7 +261,7 @@ void draw_file_system_window() {
                               "Select 'yes' to choose music folder\nSelect 'no' to close program", "yesno",
                               "question", 0)) {
             const char *path = tinyfd_selectFolderDialog("Please Select Music Folder",
-                                                         app_state.cur_root_dir.c_str());
+                                                         app_state.cur_root_dir.string().c_str());
             if (path) {
                 app_state.new_root_dir = std::string(path);
             }
@@ -526,7 +526,7 @@ void rebuild_remote_browser() {
     }
 
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *) &res);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
 
     CURLcode result = curl_easy_perform(curl);
@@ -578,7 +578,7 @@ void fetch_artist_albums(artist_node &artist) {
     }
 
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *) &res);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
 
     CURLcode result = curl_easy_perform(curl);
@@ -748,7 +748,7 @@ void build_remote_media_view(std::string album_id) {
     }
 
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *) &res);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
 
     CURLcode result = curl_easy_perform(curl);
@@ -900,8 +900,6 @@ int main(int, char **) {
     ImGuiStyle &style = ImGui::GetStyle();
     style.ScaleAllSizes(main_scale);
     style.FontScaleDpi = main_scale;
-
-    app_state.new_root_dir = "/home/harry/Music";
 
     // Make the bg invisible
     style.Colors[ImGuiCol_DockingEmptyBg] = ImVec4(0, 0, 0, 0);
