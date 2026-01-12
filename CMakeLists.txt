@@ -12,6 +12,7 @@ find_package(CURL CONFIG REQUIRED)
 find_package(TagLib CONFIG REQUIRED)
 find_package(OpenGL REQUIRED)
 
+
 # Manually find FFmpeg libraries
 find_path(FFMPEG_INCLUDE_DIR libavcodec/avcodec.h)
 find_library(AVCODEC_LIBRARY NAMES avcodec)
@@ -34,6 +35,7 @@ add_executable(ImMusic
         ${IMGUI_DIR}/imgui_widgets.cpp
         ${IMGUI_DIR}/imgui_impl_sdl3.cpp
         ${IMGUI_DIR}/imgui_impl_opengl3.cpp
+        external/simdjson.cpp
 
         include/app_state.h
         include/debug_log.h

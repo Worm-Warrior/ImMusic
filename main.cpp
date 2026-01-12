@@ -28,15 +28,22 @@
 #include <taglib/fileref.h>
 #include <taglib/tag.h>
 #include <taglib/audioproperties.h>
-#include <algorithm>
 #include "include/file_tree.h"
 #include "external/tinyfiledialogs.h"
+#include "include/network.h"
+#include <curl/curl.h>
+#include "external/simdjson.h"
+
+extern "C" {
+#include <libavcodec/avcodec.h>
+}
 
 static constexpr std::string_view valid_formats[] = {
     ".mp3", ".flac", ".wav", ".ogg", ".opus", ".aac", ".m4a"
 };
 
 // TODO: this needs a big refactor to keep the main.cpp small and more readable.
+
 
 // * This will be our whole app state in one big FAT GLOBAL struct.
 static app_state_t app_state;
@@ -75,20 +82,31 @@ void draw_dockspace() {
     ImGui::Begin("Main View", nullptr, flags);
 
     // Main menu bar logic goes here.
-    // TODO: Add the dropdown menus I want and code the logic.
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("Menu")) {
             if (ImGui::MenuItem("Change root directory")) {
                 // Holy moly this is so simple and just works like this, thank God for OSS and platform layers!
                 const char *path = tinyfd_selectFolderDialog("Select Music Folder",
-                                                             app_state.cur_root_dir.string().c_str());
+                                                             app_state.cur_root_dir.c_str());
                 if (path) {
                     app_state.new_root_dir = std::string(path);
                 }
             }
             if (ImGui::MenuItem("Search")) {
             }
+            if (ImGui::MenuItem("Local File System View", NULL, &app_state.show_file_system_window)) {
+                if (app_state.show_remote_browser) {
+                    app_state.show_remote_browser = !app_state.show_remote_browser;
+                }
+            }
+            if (ImGui::MenuItem("Remote View", NULL, &app_state.show_remote_browser)) {
+                if (app_state.show_file_system_window) {
+                    app_state.show_file_system_window = !app_state.show_file_system_window;
+                }
+            }
+            ImGui::Separator();
             if (ImGui::MenuItem("Exit")) { app_state.is_running = false; }
+
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
@@ -188,13 +206,20 @@ void load_and_play_file(const track_t &track) {
         decoder_thread.join();
     }
 
-    std::filesystem::path track_path = track.path;
+    std::string track_path;
 
-    if (!load_file(audio_context, track_path.string())) {
-        debug_log.AddLog("[ERROR]: Failed to load file %s\n", track_path.string().c_str());
+    if (!track.path.empty()) {
+        track_path = track.path.string();
+    } else {
+        track_path = std::format(
+            "http://192.168.4.165:4533/rest/stream?id={}&u=admin&p=rat&c=ImMusic&v=1.16.1&f=json", track.song_id);
+    }
+
+    if (!load_file(audio_context, track_path)) {
+        debug_log.AddLog("[ERROR]: Failed to load file %s\n", track_path.c_str());
         return;
     }
-    debug_log.AddLog("[INFO]: Loaded file: %s\n", track_path.string().c_str());
+    debug_log.AddLog("[INFO]: Loaded file: %s\n", track_path.c_str());
 
     SDL_AudioSpec spec;
     SDL_zero(spec);
@@ -221,7 +246,46 @@ void load_and_play_file(const track_t &track) {
     start_decoding_thread(audio_context, decoder_thread, app_state);
     app_state.seek_time = 0;
     app_state.seek_max = track.duration.count();
-    debug_log.AddLog("[INFO]: Now playing: %s\n", track_path.filename().string().c_str());
+    debug_log.AddLog("[INFO]: Now playing: %s\n", track_path.c_str());
+}
+
+void draw_file_system_window() {
+    ImGui::Begin("Local File System", &app_state.show_file_system_window);
+    static ImGuiTableFlags table_flags =
+            ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
+
+    // Handle if we have no root dir, ask the user to provide a music folder to have as root
+    if (app_state.cur_root_dir.empty() && app_state.new_root_dir.empty()) {
+        if (tinyfd_messageBox("No music folder found",
+                              "Select 'yes' to choose music folder\nSelect 'no' to close program", "yesno",
+                              "question", 0)) {
+            const char *path = tinyfd_selectFolderDialog("Please Select Music Folder",
+                                                         app_state.cur_root_dir.c_str());
+            if (path) {
+                app_state.new_root_dir = std::string(path);
+            }
+        } else {
+            fprintf(stderr, "User selected not to choose music folder!\n");
+            exit(2);
+        }
+    }
+
+    if (ImGui::BeginTable("file_system", 2, table_flags)) {
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableHeadersRow();
+
+        if (app_state.new_root_dir != app_state.cur_root_dir) {
+            scan_folders(app_state.new_root_dir, file_system_cache);
+        }
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        render_node(0, file_system_cache);
+
+        ImGui::EndTable();
+    }
+    ImGui::End();
 }
 
 /* *
@@ -229,7 +293,6 @@ void load_and_play_file(const track_t &track) {
  * This will build up our media view.
  *
  * Ideas for later:
- * Use the clipping from ImGui to load only sections at a time.
  * Spread the rendering across more than one frame, so we don't get frame time spikes.
  * Maybe pass something smaller than the whole path of the file to the ImGui::Selectable().
  * */
@@ -260,10 +323,13 @@ void build_media_view(std::filesystem::path path) {
             if (!is_valid) {
                 continue;
             }
+#ifdef _WIN32
+            TagLib::FileRef f((entry.path().wstring().c_str()));
+#else
             TagLib::FileRef f((entry.path().string().c_str()));
+#endif
             track_t t;
             t.path = entry.path();
-            t.is_remote = false;
             t.track_number = f.tag()->track();
             // Need true for unicode, else the asian characters don't show right on media view.
             t.track_name = std::string(f.tag()->title().to8Bit(true));
@@ -294,8 +360,8 @@ void display_tracks(const std::vector<track_t> &tracks) {
             const track_t &t = tracks[i];
             bool is_selected = (app_state.cur_selected_track.path == t.path);
 
-            ImGui::TableNextRow();
 
+            ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
 
             if ((ImGui::Selectable(("##" + t.path.string()).c_str(), is_selected,
@@ -317,7 +383,6 @@ void display_tracks(const std::vector<track_t> &tracks) {
                 debug_log.AddLog("[INFO]: cur_selected_track: %s at index %d\n", t.path.c_str(), index);
             }
             ImGui::SameLine();
-            ImGui::TableSetColumnIndex(0);
             ImGui::Text("%d", t.track_number);
             ImGui::TableSetColumnIndex(1);
             ImGui::Text("%s", t.track_name.c_str());
@@ -338,7 +403,7 @@ void display_tracks(const std::vector<track_t> &tracks) {
     }
 }
 
-void show_media_view(std::filesystem::path path) {
+void draw_media_view(std::filesystem::path path) {
     if (path.empty()) {
         app_state.show_media_view = false;
         return;
@@ -361,6 +426,379 @@ void show_media_view(std::filesystem::path path) {
         ImGui::TableSetupColumn("Duration", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableHeadersRow();
         display_tracks(app_state.media_view_tracks);
+        ImGui::EndTable();
+    }
+    ImGui::End();
+}
+
+/* *
+ * === PLAYER CONTROLS ==
+ * */
+
+void draw_player_controls() {
+    ImGui::Begin("Player Control");
+    ImGui::LabelText("", "%s", app_state.cur_selected_track.track_name.c_str());
+    if (ImGui::Button("Prev")) {
+        if (app_state.cur_track_index - 1 < app_state.playing_tracks.size()) {
+            app_state.cur_track_index--;
+            app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
+            load_and_play_file(app_state.playing_tracks[app_state.cur_track_index]);
+            debug_log.AddLog("[INFO]: Prev playing: %s\n", app_state.cur_selected_track.track_name.c_str());
+        } else {
+            app_state.cur_track_index = app_state.playing_tracks.size() - 1;
+            app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
+            load_and_play_file(app_state.playing_tracks[app_state.cur_track_index]);
+            debug_log.AddLog("[INFO]: No prev track looping to back to end: %s\n",
+                             app_state.cur_selected_track.track_name.c_str());
+        }
+    }
+
+    ImGui::SameLine();
+    if (audio_context.is_paused) {
+        if (ImGui::Button("Play###PlayPause")) {
+            debug_log.AddLog("Pressed Play\n");
+            toggle_play_pause(audio_context);
+        }
+    } else {
+        if (ImGui::Button("Pause###PlayPause")) {
+            debug_log.AddLog("Pressed Pause\n");
+            toggle_play_pause(audio_context);
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Next")) {
+        if (app_state.cur_track_index + 1 < app_state.playing_tracks.size()) {
+            app_state.cur_track_index++;
+            app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
+            load_and_play_file(app_state.playing_tracks[app_state.cur_track_index]);
+            debug_log.AddLog("[INFO]: Next playing: %s\n", app_state.cur_selected_track.track_name.c_str());
+        } else {
+            app_state.cur_track_index = 0;
+            app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
+            load_and_play_file(app_state.playing_tracks[app_state.cur_track_index]);
+            debug_log.AddLog("[INFO]: No next track looping back to start: %s\n",
+                             app_state.cur_selected_track.track_name.c_str());
+        }
+    }
+    if (ImGui::SliderInt("Time", &app_state.seek_time, app_state.seek_min, app_state.seek_max)) {
+        app_state.is_seeking = true;
+    } else if (ImGui::IsItemDeactivated() && app_state.is_seeking != false) {
+        debug_log.AddLog("Seeking released at: %d\n", app_state.seek_time);
+        app_state.is_seeking = false;
+        app_state.seek_queued = true;
+        // * This is here because if we don't delay by a frame we can get garbage, so delay a frame.
+        app_state.just_seeked.exchange(true);
+        audio_context.seek_seconds.store(app_state.seek_time, std::memory_order_relaxed);
+        audio_context.seek_req.store(true, std::memory_order_release);
+    }
+    if (ImGui::SliderFloat("Volume", &app_state.cur_track_volume, 0, 1, "%.2f")) {
+        debug_log.AddLog("Volume: %f\n", app_state.cur_track_volume);
+    }
+    ImGui::End();
+    // TODO: make this update only if the volume has changed.
+    SDL_SetAudioDeviceGain(SDL_GetAudioStreamDevice(audio_context.audio_stream),
+                           app_state.cur_track_volume);
+}
+
+
+// * === FRAMETIME TEXT ===
+void draw_frametime() {
+    ImGuiIO &io = ImGui::GetIO();
+    ImGui::Begin("frametime", &app_state.show_frametime);
+
+    float avg_ms = 1000.0f / io.Framerate;
+    ImGui::Text("Average %.3f ms/frame (%.1f FPS)", avg_ms, io.Framerate);
+
+    ImGui::End();
+}
+
+// * === REMOTE BROWSER ===
+
+// This function uses network_response and network_callback defined in network.h
+void rebuild_remote_browser() {
+    std::string url = "http://192.168.4.165:4533/rest/getArtists.view?u=admin&p=rat&c=ImMusic&v=1.16.1&f=json";
+    network_response res = {0};
+
+    CURL *curl = curl_easy_init();
+
+    if (!curl) {
+        exit(1);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *) &res);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+    CURLcode result = curl_easy_perform(curl);
+
+    if (result != CURLE_OK) {
+        exit(1);
+    }
+
+    simdjson::ondemand::parser json_parser;
+    simdjson::padded_string data(res.response, res.size);
+    simdjson::ondemand::document doc = json_parser.iterate(data);
+    simdjson::ondemand::object obj = doc.get_object();
+
+    simdjson::ondemand::array index_array = obj["subsonic-response"]["artists"]["index"].get_array();
+
+    for (auto artist_array: index_array) {
+        simdjson::ondemand::array artist = artist_array["artist"].get_array();
+
+        for (auto artist_obj: artist) {
+            std::string_view name = artist_obj["name"].get_string();
+            std::string_view id = artist_obj["id"].get_string();
+            int64_t album_count = artist_obj["albumCount"].get_int64();
+
+            artist_node node;
+            node.artist_name = std::string(name);
+            node.artist_id = std::string(id);
+            node.album_count = album_count;
+
+            app_state.artists.push_back(node);
+            debug_log.AddLog("[INFO]: Added %s to the artist list\n", node.artist_name.c_str());
+        }
+    }
+
+    debug_log.AddLog("[INFO]: Added %lu artists\n", app_state.artists.size());
+    free(res.response);
+    curl_easy_cleanup(curl);
+}
+
+void fetch_artist_albums(artist_node &artist) {
+    std::string url = std::format(
+        "http://192.168.4.165:4533/rest/getArtist.view?id={}&u=admin&p=rat&c=ImMusic&v=1.16.1&f=json",
+        artist.artist_id);
+    network_response res = {0};
+
+    CURL *curl = curl_easy_init();
+
+    if (!curl) {
+        exit(1);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *) &res);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+    CURLcode result = curl_easy_perform(curl);
+
+    if (result != CURLE_OK) {
+        exit(1);
+    }
+    simdjson::ondemand::parser json_parser;
+    simdjson::padded_string data(res.response, res.size);
+    simdjson::ondemand::document doc = json_parser.iterate(data);
+    simdjson::ondemand::object obj = doc.get_object();
+
+    simdjson::ondemand::array album_array = obj["subsonic-response"]["artist"]["album"].get_array();
+
+    for (auto album: album_array) {
+        album_node a;
+        std::string_view id = album["id"].get_string();
+        std::string_view name = album["name"].get_string();
+        a.album_id = std::string(id);
+        a.album_name = std::string(name);
+        a.track_count = album["songCount"].get_int64();
+
+        artist.albums.push_back(a);
+    }
+
+    free(res.response);
+    curl_easy_cleanup(curl);
+}
+
+
+void draw_remote_tree(std::vector<artist_node> &artists) {
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_OpenOnDoubleClick |
+                               ImGuiTreeNodeFlags_OpenOnArrow;
+
+    for (auto &a: artists) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+
+        bool open = ImGui::TreeNodeEx(a.artist_name.c_str(), flags);
+
+        if (ImGui::IsItemClicked() && a.artist_id != app_state.cur_artist) {
+            app_state.cur_artist = a.artist_id;
+            debug_log.AddLog("[INFO]: selected artist with id %s\n", a.artist_id.c_str());
+        }
+
+        ImGui::TableNextColumn();
+        ImGui::Text("%d", a.album_count);
+        ImGui::TableNextColumn();
+        ImGui::Text("Artist");
+
+        if (open) {
+            if (a.albums.empty()) {
+                debug_log.AddLog("[INFO]: Fetching albums for %s\n", a.artist_name.c_str());
+                fetch_artist_albums(a);
+            }
+
+            for (auto album: a.albums) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TreeNodeEx(album.album_name.c_str(),
+                                  ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet |
+                                  ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAllColumns);
+                if (ImGui::IsItemClicked() && album.album_id != app_state.cur_album) {
+                    debug_log.AddLog("[INFO]: Selected album %s\n", album.album_name.c_str());
+                    app_state.selected_album = album.album_id;
+                    app_state.show_remote_media_view = true;
+                }
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", album.track_count);
+                ImGui::TableNextColumn();
+                ImGui::Text("Album");
+            }
+            ImGui::TreePop();
+        }
+    }
+}
+
+void draw_remote_browser() {
+    if (app_state.should_rebuild_remote_browser) {
+        debug_log.AddLog("[INFO]: Rebuilding remote artists list\n");
+        debug_log.AddLog("[INFO]: New URL: %s\n", app_state.server_url.c_str());
+        rebuild_remote_browser();
+        app_state.should_rebuild_remote_browser = false;
+    }
+
+    ImGui::Begin("Remote Browser", &app_state.show_remote_browser);
+
+    ImGuiTableFlags table_flags =
+            ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
+
+    if (ImGui::BeginTable("remote_browser", 3, table_flags)) {
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide);
+        ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableHeadersRow();
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        draw_remote_tree(app_state.artists);
+        ImGui::EndTable();
+    }
+    ImGui::End();
+}
+
+// * === REMOTE MEDIA VIEW ===
+
+void display_remote_tracks(const std::vector<track_t> &tracks) {
+    ImGuiListClipper clipper;
+    clipper.Begin(tracks.size());
+    while (clipper.Step()) {
+        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+            const track_t &t = tracks[i];
+            bool is_selected = (app_state.cur_selected_track.song_id == t.song_id);
+
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+
+            if ((ImGui::Selectable(("##" + t.song_id).c_str(), is_selected,
+                                   ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) &&
+                ImGui::IsMouseDoubleClicked(0)) {
+                app_state.playing_tracks = app_state.media_view_tracks;
+                // Update the state so we have the right index(es).
+                app_state.cur_selected_track = t;
+                uint32_t index = 0;
+                for (const track_t &track: app_state.playing_tracks) {
+                    if (track.song_id == t.song_id) {
+                        break;
+                    }
+                    index++;
+                }
+                app_state.cur_track_index = index;
+                load_and_play_file(t);
+                app_state.seek_max = t.duration.count();
+                debug_log.AddLog("[INFO]: cur_selected_track: %s at index %d\n", t.path.c_str(), index);
+            }
+            ImGui::SameLine();
+            ImGui::Text("%d", t.track_number);
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%s", t.track_name.c_str());
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("%s", t.artist_name.c_str());
+            ImGui::TableSetColumnIndex(3);
+            ImGui::Text("%s", t.album_name.c_str());
+            ImGui::TableSetColumnIndex(4);
+
+            auto dur = t.duration;
+
+            auto mm = duration_cast<std::chrono::minutes>(dur);
+            auto ss = dur - mm;
+            ImGui::Text("%02lld:%02lld",
+                        static_cast<long long>(mm.count()),
+                        static_cast<long long>(ss.count()));
+        }
+    }
+}
+
+void build_remote_media_view(std::string album_id) {
+    std::string url = std::format(
+        "http://192.168.4.165:4533/rest/getAlbum.view?id={}&u=admin&p=rat&c=ImMusic&v=1.16.1&f=json", album_id);
+
+    network_response res = {0};
+    CURL *curl = curl_easy_init();
+
+    if (!curl) {
+        exit(1);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *) &res);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+    CURLcode result = curl_easy_perform(curl);
+
+    if (result != CURLE_OK) {
+        exit(1);
+    }
+    simdjson::ondemand::parser json_parser;
+    simdjson::padded_string data(res.response, res.size);
+    simdjson::ondemand::document doc = json_parser.iterate(data);
+    simdjson::ondemand::object obj = doc.get_object();
+
+    simdjson::ondemand::array song_array = obj["subsonic-response"]["album"]["song"].get_array();
+
+    for (auto s: song_array) {
+        track_t t;
+        t.album_name = std::string(s["album"].get_string().value());
+        t.artist_name = std::string(s["artist"].get_string().value());
+        t.track_name = std::string(s["title"].get_string().value());
+        t.track_number = s["track"].get_uint64();
+        t.duration = std::chrono::seconds(s["duration"].get_uint64().value());
+        t.song_id = std::string(s["id"].get_string().value());
+        app_state.media_view_tracks.push_back(t);
+    }
+}
+
+void draw_remote_media_view() {
+    if (app_state.cur_album != app_state.selected_album) {
+        app_state.cur_album = app_state.selected_album;
+        app_state.media_view_tracks.clear();
+        build_remote_media_view(app_state.cur_album);
+        debug_log.AddLog("[INFO]: Rebuilding remote media view\n");
+    }
+    ImGui::Begin("Remote Media View", &app_state.show_remote_media_view);
+    ImGuiTableFlags media_table_flags =
+            ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable |
+            ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY;
+
+    if (ImGui::BeginTable("media_view_remote", 5, media_table_flags)) {
+        ImGui::TableSetupColumn(
+            "Track",
+            ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortAscending |
+            ImGuiTableColumnFlags_DefaultSort, 80.0f);
+        ImGui::TableSetupColumn("Title", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Artist", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Album", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Duration", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableHeadersRow();
+        display_remote_tracks(app_state.media_view_tracks);
         ImGui::EndTable();
     }
     ImGui::End();
@@ -463,6 +901,8 @@ int main(int, char **) {
     style.ScaleAllSizes(main_scale);
     style.FontScaleDpi = main_scale;
 
+    app_state.new_root_dir = "/home/harry/Music";
+
     // Make the bg invisible
     style.Colors[ImGuiCol_DockingEmptyBg] = ImVec4(0, 0, 0, 0);
 
@@ -471,8 +911,7 @@ int main(int, char **) {
 
     bool show_demo_window = false;
     bool show_log = false;
-    bool show_file_system_window = true;
-    bool show_frametime = false;
+    app_state.show_frametime = false;
 
     ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.15f, 1.0f);
     glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
@@ -494,8 +933,10 @@ int main(int, char **) {
             }
         }
 
+        // !!! This does not work on wayland, find a way to limit framerate on minimized/lose focus !!!
         // So don't do anything on a minimized window!
         if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) {
+            printf("minimized\n");
             SDL_Delay(10);
             continue;
         }
@@ -525,52 +966,22 @@ int main(int, char **) {
         }
 
         if (ImGui::IsKeyReleased(ImGuiKey_F3)) {
-            show_frametime = !show_frametime;
+            app_state.show_frametime = !app_state.show_frametime;
         }
 
         // * This is the file browser window stuff
-        {
-            ImGui::Begin("Local File System", &show_file_system_window);
-            // TODO: Refactor out to a function?
-            static ImGuiTableFlags table_flags =
-                    ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
-                    ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
+        if (app_state.show_file_system_window && !app_state.show_remote_browser) {
+            draw_file_system_window();
+        }
 
-            static ImGuiTreeNodeFlags tree_node_flags_base =
-                    ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_DrawLinesFull |
-                    ImGuiTreeNodeFlags_OpenOnDoubleClick;
+        // * Remote Browser
+        if (app_state.show_remote_browser && !app_state.show_file_system_window) {
+            draw_remote_browser();
+        }
 
-            // Handle if we have no root dir, ask the user to provide a music folder to have as root
-            if (app_state.cur_root_dir.empty() && app_state.new_root_dir.empty()) {
-                if (tinyfd_messageBox("No music folder found",
-                                      "Select 'yes' to choose music folder\nSelect 'no' to close program", "yesno",
-                                      "question", 0)) {
-                    const char *path = tinyfd_selectFolderDialog("Please Select Music Folder",
-                                                                 app_state.cur_root_dir.string().c_str());
-                    if (path) {
-                        app_state.new_root_dir = std::string(path);
-                    }
-                } else {
-                    fprintf(stderr, "User selected not to choose music folder!\n");
-                    return 0;
-                }
-            }
-
-            if (ImGui::BeginTable("file_system", 2, table_flags)) {
-                ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide);
-                ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
-                ImGui::TableHeadersRow();
-
-                if (app_state.new_root_dir != app_state.cur_root_dir) {
-                    scan_folders(app_state.new_root_dir, file_system_cache);
-                }
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                render_node(0, file_system_cache);
-
-                ImGui::EndTable();
-            }
-            ImGui::End();
+        // * Remote Media View
+        if (app_state.show_remote_media_view && !app_state.show_media_view) {
+            draw_remote_media_view();
         }
 
         /* *
@@ -583,8 +994,8 @@ int main(int, char **) {
             build_media_view(app_state.cur_selected_folder);
             debug_log.AddLog("[INFO]: %lu tracks in the list\n", app_state.media_view_tracks.size());
         }
-        if (app_state.show_media_view) {
-            show_media_view(app_state.cur_selected_folder);
+        if (app_state.show_media_view && !app_state.show_remote_browser) {
+            draw_media_view(app_state.cur_selected_folder);
         }
 
         // * Simple log console copied from the examples in /include/imgui_demo.cpp
@@ -593,79 +1004,18 @@ int main(int, char **) {
             debug_log.Draw("Debug Log", &show_log);
         }
 
-        if (show_frametime) {
-            ImGui::Begin("frametime", &show_frametime);
-            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-            ImGui::End();
+        if (app_state.show_frametime) {
+            draw_frametime();
         }
-        if (app_state.show_media_view) {
-            ImGui::Begin("Player Control");
-            ImGui::LabelText("", "%s", app_state.cur_selected_track.track_name.c_str());
-            if (ImGui::Button("Prev")) {
-                if (app_state.cur_track_index - 1 < app_state.playing_tracks.size()) {
-                    app_state.cur_track_index--;
-                    app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
-                    load_and_play_file(app_state.playing_tracks[app_state.cur_track_index]);
-                    debug_log.AddLog("[INFO]: Prev playing: %s\n", app_state.cur_selected_track.track_name.c_str());
-                } else {
-                    app_state.cur_track_index = app_state.playing_tracks.size() - 1;
-                    app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
-                    load_and_play_file(app_state.playing_tracks[app_state.cur_track_index]);
-                    debug_log.AddLog("[INFO]: No prev track looping to back to end: %s\n",
-                                     app_state.cur_selected_track.track_name.c_str());
-                }
-            }
+        if (app_state.show_media_view || app_state.show_remote_media_view) {
+            draw_player_controls();
+        }
 
-            ImGui::SameLine();
-            if (audio_context.is_paused) {
-                if (ImGui::Button("Play###PlayPause")) {
-                    debug_log.AddLog("Pressed Play\n");
-                    toggle_play_pause(audio_context);
-                }
-            } else {
-                if (ImGui::Button("Pause###PlayPause")) {
-                    debug_log.AddLog("Pressed Pause\n");
-                    toggle_play_pause(audio_context);
-                }
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Next")) {
-                if (app_state.cur_track_index + 1 < app_state.playing_tracks.size()) {
-                    app_state.cur_track_index++;
-                    app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
-                    load_and_play_file(app_state.playing_tracks[app_state.cur_track_index]);
-                    debug_log.AddLog("[INFO]: Next playing: %s\n", app_state.cur_selected_track.track_name.c_str());
-                } else {
-                    app_state.cur_track_index = 0;
-                    app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
-                    load_and_play_file(app_state.playing_tracks[app_state.cur_track_index]);
-                    debug_log.AddLog("[INFO]: No next track looping back to start: %s\n",
-                                     app_state.cur_selected_track.track_name.c_str());
-                }
-            }
-            if (ImGui::SliderInt("Time", &app_state.seek_time, app_state.seek_min, app_state.seek_max)) {
-                app_state.is_seeking = true;
-            } else if (ImGui::IsItemDeactivated() && app_state.is_seeking != false) {
-                debug_log.AddLog("Seeking released at: %d\n", app_state.seek_time);
-                app_state.is_seeking = false;
-                app_state.seek_queued = true;
-                // * This is here because if we don't delay by a frame we can get garbage, so delay a frame.
-                app_state.just_seeked.exchange(true);
-                audio_context.seek_seconds.store(app_state.seek_time, std::memory_order_relaxed);
-                audio_context.seek_req.store(true, std::memory_order_release);
-            }
-            if (ImGui::SliderFloat("Volume", &app_state.cur_track_volume, 0, 1, "%.2f")) {
-                debug_log.AddLog("Volume: %f\n", app_state.cur_track_volume);
-            }
-            ImGui::End();
-            // TODO: make this update only if the volume has changed.
-            SDL_SetAudioDeviceGain(SDL_GetAudioStreamDevice(audio_context.audio_stream),
-                                   app_state.cur_track_volume);
-        }
         // This is where we render all of our draw calls we generated above with the widgets
         ImGui::Render();
 
-        // !! Tracking time test remove later
+        // TODO: Refactor out into function?
+        // Right now this is what keeps track of the current playback time.
         Sint64 bytes = SDL_GetAudioStreamQueued(audio_context.audio_stream);
         if (!audio_context.should_stop && bytes >= 0 && !app_state.just_seeked.exchange(false)) {
             int64_t qd_samples = bytes / audio_context.bytes_per_frame;
@@ -686,7 +1036,14 @@ int main(int, char **) {
             } else {
                 app_state.seek_queued = false;
             }
-            // printf("%d\n", cur_seconds);
+
+            if (cur_seconds >= app_state.cur_selected_track.duration.count() && (
+                    app_state.cur_track_index + 1 < app_state.playing_tracks.size())) {
+                app_state.cur_track_index++;
+                app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
+                load_and_play_file(app_state.cur_selected_track);
+                debug_log.AddLog("[INFO]: Autoplaying %s", app_state.cur_selected_track.track_name.c_str());
+            }
         }
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
