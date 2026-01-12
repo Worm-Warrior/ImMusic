@@ -200,6 +200,7 @@ void scan_folders(const std::filesystem::path &root, file_system_cache_t &cache)
     app_state.cur_root_dir = root;
 }
 
+// TODO: This currently has big overhead because we stop and start a thread each playback.
 void load_and_play_file(const track_t &track) {
     if (decoder_thread.joinable()) {
         audio_context.should_stop = true;
@@ -641,10 +642,11 @@ void draw_remote_tree(std::vector<artist_node> &artists) {
                 ImGui::TreeNodeEx(album.album_name.c_str(),
                                   ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet |
                                   ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAllColumns);
-                if (ImGui::IsItemClicked() && album.album_id != app_state.cur_album) {
+                if (ImGui::IsItemClicked()) {
                     debug_log.AddLog("[INFO]: Selected album %s\n", album.album_name.c_str());
                     app_state.selected_album = album.album_id;
                     app_state.show_remote_media_view = true;
+                    app_state.show_media_view = false;
                 }
                 ImGui::TableNextColumn();
                 ImGui::Text("%d", album.track_count);
@@ -768,7 +770,11 @@ void build_remote_media_view(std::string album_id) {
         t.album_name = std::string(s["album"].get_string().value());
         t.artist_name = std::string(s["artist"].get_string().value());
         t.track_name = std::string(s["title"].get_string().value());
-        t.track_number = s["track"].get_uint64();
+        if (s.find_field("track").error() == simdjson::error_code::NO_SUCH_FIELD) {
+            t.track_number = 0;
+        } else {
+            t.track_number = s["track"].get_uint64();
+        }
         t.duration = std::chrono::seconds(s["duration"].get_uint64().value());
         t.song_id = std::string(s["id"].get_string().value());
         app_state.media_view_tracks.push_back(t);
@@ -867,7 +873,7 @@ int main(int, char **) {
 
     // More window config
     SDL_GL_MakeCurrent(window, gl_context);
-    SDL_GL_SetSwapInterval(1); // This is vsync
+    SDL_GL_SetSwapInterval(-1); // This is vsync
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     SDL_ShowWindow(window);
 
@@ -913,6 +919,8 @@ int main(int, char **) {
     bool show_log = false;
     app_state.show_frametime = false;
 
+    bool window_focused = true;
+
     ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.15f, 1.0f);
     glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -931,14 +939,25 @@ int main(int, char **) {
             if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == SDL_GetWindowID(window)) {
                 app_state.is_running = false;
             }
+
+            if (event.type == SDL_EVENT_WINDOW_FOCUS_GAINED) {
+                window_focused = true;
+            }
+
+            if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+                window_focused = false;
+            }
         }
 
         // !!! This does not work on wayland, find a way to limit framerate on minimized/lose focus !!!
         // So don't do anything on a minimized window!
         if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) {
-            printf("minimized\n");
             SDL_Delay(10);
             continue;
+        }
+
+        if (!window_focused) {
+            SDL_Delay(33);
         }
 
         // Clear everything out before rendering the frame
@@ -994,6 +1013,8 @@ int main(int, char **) {
             build_media_view(app_state.cur_selected_folder);
             debug_log.AddLog("[INFO]: %lu tracks in the list\n", app_state.media_view_tracks.size());
         }
+
+        // * Show local media view
         if (app_state.show_media_view && !app_state.show_remote_browser) {
             draw_media_view(app_state.cur_selected_folder);
         }
@@ -1004,9 +1025,12 @@ int main(int, char **) {
             debug_log.Draw("Debug Log", &show_log);
         }
 
+        // * Show frametime window
         if (app_state.show_frametime) {
             draw_frametime();
         }
+
+        // * Show player controls
         if (app_state.show_media_view || app_state.show_remote_media_view) {
             draw_player_controls();
         }
