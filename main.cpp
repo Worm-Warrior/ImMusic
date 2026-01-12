@@ -206,13 +206,20 @@ void load_and_play_file(const track_t &track) {
         decoder_thread.join();
     }
 
-    std::filesystem::path track_path = track.path;
+    std::string track_path;
 
-    if (!load_file(audio_context, track_path.string())) {
-        debug_log.AddLog("[ERROR]: Failed to load file %s\n", track_path.string().c_str());
+    if (!track.path.empty()) {
+        track_path = track.path;
+    } else {
+        track_path = std::format(
+            "http://192.168.4.165:4533/rest/stream?id={}&u=admin&p=rat&c=ImMusic&v=1.16.1&f=json", track.song_id);
+    }
+
+    if (!load_file(audio_context, track_path)) {
+        debug_log.AddLog("[ERROR]: Failed to load file %s\n", track_path.c_str());
         return;
     }
-    debug_log.AddLog("[INFO]: Loaded file: %s\n", track_path.string().c_str());
+    debug_log.AddLog("[INFO]: Loaded file: %s\n", track_path.c_str());
 
     SDL_AudioSpec spec;
     SDL_zero(spec);
@@ -239,7 +246,7 @@ void load_and_play_file(const track_t &track) {
     start_decoding_thread(audio_context, decoder_thread, app_state);
     app_state.seek_time = 0;
     app_state.seek_max = track.duration.count();
-    debug_log.AddLog("[INFO]: Now playing: %s\n", track_path.filename().string().c_str());
+    debug_log.AddLog("[INFO]: Now playing: %s\n", track_path.c_str());
 }
 
 void draw_file_system_window() {
@@ -353,9 +360,10 @@ void display_tracks(const std::vector<track_t> &tracks) {
             const track_t &t = tracks[i];
             bool is_selected = (app_state.cur_selected_track.path == t.path);
 
-            ImGui::TableNextRow();
 
+            ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
+
             if ((ImGui::Selectable(("##" + t.path.string()).c_str(), is_selected,
                                    ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) &&
                 ImGui::IsMouseDoubleClicked(0)) {
@@ -676,6 +684,58 @@ void draw_remote_browser() {
 }
 
 // * === REMOTE MEDIA VIEW ===
+
+void display_remote_tracks(const std::vector<track_t> &tracks) {
+    ImGuiListClipper clipper;
+    clipper.Begin(tracks.size());
+    while (clipper.Step()) {
+        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+            const track_t &t = tracks[i];
+            bool is_selected = (app_state.cur_selected_track.song_id == t.song_id);
+
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+
+            if ((ImGui::Selectable(("##" + t.song_id).c_str(), is_selected,
+                                   ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) &&
+                ImGui::IsMouseDoubleClicked(0)) {
+                app_state.playing_tracks = app_state.media_view_tracks;
+                // Update the state so we have the right index(es).
+                app_state.cur_selected_track = t;
+                uint32_t index = 0;
+                for (const track_t &track: app_state.playing_tracks) {
+                    if (track.song_id == t.song_id) {
+                        break;
+                    }
+                    index++;
+                }
+                app_state.cur_track_index = index;
+                load_and_play_file(t);
+                app_state.seek_max = t.duration.count();
+                debug_log.AddLog("[INFO]: cur_selected_track: %s at index %d\n", t.path.c_str(), index);
+            }
+            ImGui::SameLine();
+            ImGui::Text("%d", t.track_number);
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%s", t.track_name.c_str());
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("%s", t.artist_name.c_str());
+            ImGui::TableSetColumnIndex(3);
+            ImGui::Text("%s", t.album_name.c_str());
+            ImGui::TableSetColumnIndex(4);
+
+            auto dur = t.duration;
+
+            auto mm = duration_cast<std::chrono::minutes>(dur);
+            auto ss = dur - mm;
+            ImGui::Text("%02lld:%02lld",
+                        static_cast<long long>(mm.count()),
+                        static_cast<long long>(ss.count()));
+        }
+    }
+}
+
 void build_remote_media_view(std::string album_id) {
     std::string url = std::format(
         "http://192.168.4.165:4533/rest/getAlbum.view?id={}&u=admin&p=rat&c=ImMusic&v=1.16.1&f=json", album_id);
@@ -703,12 +763,12 @@ void build_remote_media_view(std::string album_id) {
 
     simdjson::ondemand::array song_array = obj["subsonic-response"]["album"]["song"].get_array();
 
-    for (auto s : song_array) {
+    for (auto s: song_array) {
         track_t t;
         t.album_name = std::string(s["album"].get_string().value());
         t.artist_name = std::string(s["artist"].get_string().value());
         t.track_name = std::string(s["title"].get_string().value());
-        t.track_number= s["track"].get_uint64();
+        t.track_number = s["track"].get_uint64();
         t.duration = std::chrono::seconds(s["duration"].get_uint64().value());
         t.song_id = std::string(s["id"].get_string().value());
         app_state.media_view_tracks.push_back(t);
@@ -738,7 +798,7 @@ void draw_remote_media_view() {
         ImGui::TableSetupColumn("Album", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableSetupColumn("Duration", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableHeadersRow();
-        display_tracks(app_state.media_view_tracks);
+        display_remote_tracks(app_state.media_view_tracks);
         ImGui::EndTable();
     }
     ImGui::End();
@@ -947,7 +1007,7 @@ int main(int, char **) {
         if (app_state.show_frametime) {
             draw_frametime();
         }
-        if (app_state.show_media_view) {
+        if (app_state.show_media_view || app_state.show_remote_media_view) {
             draw_player_controls();
         }
 
