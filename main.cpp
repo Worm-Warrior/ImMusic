@@ -12,6 +12,7 @@
 #include <SDL3/SDL_surface.h>
 #include <cstdio>
 #include <format>
+#include <fstream>
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
 
@@ -810,6 +811,66 @@ void draw_remote_media_view() {
     ImGui::End();
 }
 
+
+// * === SETTINGS MANAGEMENT ===
+
+bool parse_settings(std::fstream &config) {
+    int line_number = 1;
+    std::string line;
+    while (std::getline(config, line)) {
+        if (line.starts_with('#')) {
+            continue;
+        }
+
+        if (line.starts_with("music_path")) {
+            size_t split = line.find_first_of('=');
+
+            std::string dir = line.substr(split + 1, line.size());
+            std::cout << dir << "\n";
+            if (std::filesystem::exists(dir)) {
+                app_state.new_root_dir = std::filesystem::path(dir);
+            } else {
+                fprintf(stderr, "ERROR AT LINE %d: FILEPATH music_path=%s IN settings.txt DOES NOT EXIST!\n",
+                        line_number, dir.c_str());
+                return false;
+            }
+        }
+
+        if (line.starts_with("server_url")) {
+            size_t split = line.find_first_of('=');
+            std::string base_url = line.substr(split + 1, line.size());
+            app_state.server_base_addr = base_url;
+            std::cout << base_url << "\n";
+        }
+
+        if (line.starts_with("username")) {
+            size_t split = line.find_first_of('=');
+            std::string username = line.substr(split + 1, line.size());
+            app_state.server_username = username;
+            std::cout << username << "\n";
+        }
+
+        if (line.starts_with("password")) {
+            size_t split = line.find_first_of('=');
+            std::string password = line.substr(split + 1, line.size());
+            app_state.server_password = password;
+            std::cout << password << "\n";
+        }
+        line_number++;
+    }
+    return true;
+}
+
+void check_settings_file() {
+    std::fstream config;
+    config.open("settings.txt");
+    if (config.is_open()) {
+        if (!parse_settings(config)) {
+            fprintf(stderr, "parse_settings returned false!\n");
+        }
+    }
+}
+
 // * === ENTRY POINT ===
 int main(int, char **) {
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_AUDIO)) {
@@ -907,7 +968,7 @@ int main(int, char **) {
     style.ScaleAllSizes(main_scale);
     style.FontScaleDpi = main_scale;
 
-    app_state.new_root_dir = "/home/harry/Music";
+    check_settings_file();
 
     // Make the bg invisible
     style.Colors[ImGuiCol_DockingEmptyBg] = ImVec4(0, 0, 0, 0);

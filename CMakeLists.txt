@@ -38,6 +38,7 @@ add_executable(ImMusic
         external/simdjson.cpp
         include/remote_tree.h
         include/network.h
+        include/app_settings.h
 )
 
 target_include_directories(ImMusic PRIVATE

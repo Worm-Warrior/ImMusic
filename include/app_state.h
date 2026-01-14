@@ -8,9 +8,12 @@
 #include "file_tree.h"
 #include "track.h"
 #include "remote_tree.h"
+#include "app_settings.h"
 
 // * big -> small fields
 struct app_state_t {
+    app_settings_t app_settings;
+
     std::vector<track_t> media_view_tracks;
     std::vector<track_t> playing_tracks;
     std::vector<file_tree_node_t> file_system_tree;
