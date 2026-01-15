@@ -814,6 +814,19 @@ void draw_remote_media_view() {
 
 // * === SETTINGS MANAGEMENT ===
 
+void save_settings_to_file() {
+    std::ofstream config("settings.txt");
+
+    if (!config.is_open()) {
+        fprintf(stderr, "could not open file to save settings!\n");
+    }
+
+    config << "music_path="  << app_state.cur_root_dir.string() << "\n";
+    config << "server_url=" << app_state.server_base_addr << "\n";
+    config << "username=" << app_state.server_username << "\n";
+    config << "password=" << app_state.server_password << "\n";
+}
+
 bool parse_settings(std::fstream &config) {
     int line_number = 1;
     std::string line;
@@ -1134,6 +1147,7 @@ int main(int, char **) {
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         SDL_GL_SwapWindow(window);
     }
+    save_settings_to_file();
     // Shutdown and cleanup
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
