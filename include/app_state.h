@@ -49,6 +49,8 @@ struct app_state_t {
     bool show_file_system_window = true;
     bool show_media_view = false;
 
+    bool show_server_settings = false;
+
     bool is_running = true;
     bool is_remote = false;
     bool show_player_control = false;

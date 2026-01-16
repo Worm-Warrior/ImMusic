@@ -93,6 +93,10 @@ void draw_dockspace() {
                     app_state.new_root_dir = std::string(path);
                 }
             }
+
+            ImGui::MenuItem("Server Settings", NULL, &app_state.show_server_settings);
+
+
             if (ImGui::MenuItem("Search")) {
             }
             if (ImGui::MenuItem("Local File System View", NULL, &app_state.show_file_system_window)) {
@@ -821,7 +825,7 @@ void save_settings_to_file() {
         fprintf(stderr, "could not open file to save settings!\n");
     }
 
-    config << "music_path="  << app_state.cur_root_dir.string() << "\n";
+    config << "music_path=" << app_state.cur_root_dir.string() << "\n";
     config << "server_url=" << app_state.server_base_addr << "\n";
     config << "username=" << app_state.server_username << "\n";
     config << "password=" << app_state.server_password << "\n";
@@ -1107,6 +1111,30 @@ int main(int, char **) {
         // * Show player controls
         if (app_state.show_media_view || app_state.show_remote_media_view) {
             draw_player_controls();
+        }
+
+        // * For changing the server settings
+        if (app_state.show_server_settings) {
+            ImGui::Begin("Server Settings", &app_state.show_server_settings);
+
+            static char urlbuf[256] = "";
+            static char username[32] = "";
+            static char password[32] = "";
+
+            ImGui::InputTextWithHint("Server url", "ex: http://192.168.4.165:4535", urlbuf, IM_COUNTOF(urlbuf));
+            ImGui::InputText("Username", username, IM_COUNTOF(username));
+            ImGui::InputTextWithHint("Password", "THIS IS STORED IN PLAIN TEXT", password, IM_COUNTOF(password), ImGuiInputTextFlags_Password);
+
+            if (ImGui::Button("Save")) {
+                printf("Save Pressed\n");
+            }
+            ImGui::SameLine();
+
+            if (ImGui::Button("Cancel")) {
+                printf("Cancel Pressed\n");
+            }
+
+            ImGui::End();
         }
 
         // This is where we render all of our draw calls we generated above with the widgets
