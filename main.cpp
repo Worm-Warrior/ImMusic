@@ -1126,12 +1126,17 @@ int main(int, char **) {
             ImGui::InputTextWithHint("Password", "THIS IS STORED IN PLAIN TEXT", password, IM_COUNTOF(password), ImGuiInputTextFlags_Password);
 
             if (ImGui::Button("Save")) {
-                printf("Save Pressed\n");
+                app_state.server_base_addr = std::string(urlbuf);
+                app_state.server_username = std::string(username);
+                app_state.server_password = std::string(password);
             }
             ImGui::SameLine();
 
             if (ImGui::Button("Cancel")) {
-                printf("Cancel Pressed\n");
+                memset(urlbuf, 0, sizeof(urlbuf));
+                memset(username, 0, sizeof(username));
+                memset(password, 0, sizeof(password));
+                app_state.show_server_settings = false;
             }
 
             ImGui::End();
