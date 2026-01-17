@@ -521,6 +521,8 @@ void draw_frametime() {
 // * === REMOTE BROWSER ===
 
 // This function uses network_response and network_callback defined in network.h
+// TODO: Make multi threaded!
+// !!! NOT ASYNC YET !!!
 void rebuild_remote_browser() {
     std::string url = "http://192.168.4.165:4533/rest/getArtists.view?u=admin&p=rat&c=ImMusic&v=1.16.1&f=json";
     network_response res = {0};
@@ -571,6 +573,8 @@ void rebuild_remote_browser() {
     curl_easy_cleanup(curl);
 }
 
+// TODO: Make multi threaded!
+// !!! NOT ASYNC YET !!!
 void fetch_artist_albums(artist_node &artist) {
     std::string url = std::format(
         "http://192.168.4.165:4533/rest/getArtist.view?id={}&u=admin&p=rat&c=ImMusic&v=1.16.1&f=json",
@@ -744,6 +748,8 @@ void display_remote_tracks(const std::vector<track_t> &tracks) {
     }
 }
 
+// TODO: Make multi threaded!
+// !!! NOT ASYNC YET !!!
 void build_remote_media_view(std::string album_id) {
     std::string url = std::format(
         "http://192.168.4.165:4533/rest/getAlbum.view?id={}&u=admin&p=rat&c=ImMusic&v=1.16.1&f=json", album_id);
@@ -890,6 +896,8 @@ void check_settings_file() {
     }
 }
 
+// TODO: Make multi threaded!
+// !!! NOT ASYNC YET !!!
 VALIDATION_CODE validate_server_info(const std::string &addr, const std::string &username,
                                      const std::string &password) {
     std::string url = std::format("{}/rest/ping?u={}&p={}&c=ImMusic&v=1.16.1&f=json", addr, username, password);
