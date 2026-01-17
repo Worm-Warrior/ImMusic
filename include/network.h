@@ -2,6 +2,14 @@
 #include <cstdlib>
 #include <cstring>
 
+enum VALIDATION_CODE {
+    OK = 0,
+    NO_RESPONSE,
+    SUBSONIC_NOT_OK,
+    CURL_FAILURE,
+    INVALID_LOGIN_CRED
+};
+
 struct network_response {
     char *response;
     size_t size;

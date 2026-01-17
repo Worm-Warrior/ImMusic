@@ -153,7 +153,7 @@ void add_folder_rec(const std::filesystem::path &root, int parent_idx, file_syst
     }
 }
 
-void render_node(int node_idx, const file_system_cache_t &cache) {
+void draw_node(int node_idx, const file_system_cache_t &cache) {
     const file_tree_node_t &node = cache.nodes[node_idx];
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_OpenOnDoubleClick |
@@ -183,7 +183,7 @@ void render_node(int node_idx, const file_system_cache_t &cache) {
 
     if (open) {
         for (int i: node.child_indexes) {
-            render_node(i, cache);
+            draw_node(i, cache);
         }
         ImGui::TreePop();
     }
@@ -287,7 +287,7 @@ void draw_file_system_window() {
         }
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-        render_node(0, file_system_cache);
+        draw_node(0, file_system_cache);
 
         ImGui::EndTable();
     }
@@ -580,6 +580,7 @@ void fetch_artist_albums(artist_node &artist) {
     CURL *curl = curl_easy_init();
 
     if (!curl) {
+        fprintf(stderr, "curl failed easy_init\n");
         exit(1);
     }
 
@@ -751,6 +752,7 @@ void build_remote_media_view(std::string album_id) {
     CURL *curl = curl_easy_init();
 
     if (!curl) {
+        fprintf(stderr, "curl failed easy_init\n");
         exit(1);
     }
 
@@ -886,6 +888,120 @@ void check_settings_file() {
             fprintf(stderr, "parse_settings returned false!\n");
         }
     }
+}
+
+VALIDATION_CODE validate_server_info(const std::string &addr, const std::string &username,
+                                     const std::string &password) {
+    std::string url = std::format("{}/rest/ping?u={}&p={}&c=ImMusic&v=1.16.1&f=json", addr, username, password);
+
+    network_response res = {0};
+    CURL *curl = curl_easy_init();
+
+    if (!curl) {
+        fprintf(stderr, "curl failed easy_init\n");
+        return CURL_FAILURE;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+    CURLcode result = curl_easy_perform(curl);
+
+    if (result != CURLE_OK) {
+        fprintf(stderr, "CURLE WAS NOT OK\n");
+        return CURL_FAILURE;
+    }
+
+    simdjson::ondemand::parser json_parser;
+    simdjson::padded_string data(res.response, res.size);
+    simdjson::ondemand::document doc = json_parser.iterate(data);
+    simdjson::ondemand::object obj = doc.get_object();
+    if (obj.find_field("subsonic-response").error() == simdjson::error_code::NO_SUCH_FIELD) {
+        return NO_RESPONSE;
+    }
+
+    std::string_view status = obj["subsonic-response"]["status"].get_string();
+    if (status == "ok") {
+        return OK;
+    }
+
+    uint64_t code = obj["subsonic-response"]["error"]["code"].get_int64();
+
+    if (code == 40) {
+        return INVALID_LOGIN_CRED;
+    }
+
+    free(res.response);
+    curl_easy_cleanup(curl);
+}
+
+void draw_settings_menu() {
+    ImGui::Begin("Server Settings", &app_state.show_server_settings);
+
+    static char urlbuf[256] = "";
+    static char username[32] = "";
+    static char password[32] = "";
+    static VALIDATION_CODE last_error = OK;
+
+
+    ImGui::TextWrapped("CAUTION:\nAll of this info is saved in plain text in settings.txt!");
+    ImGui::InputTextWithHint("Server url", "ex: http://192.168.4.165:4535", urlbuf, IM_COUNTOF(urlbuf));
+    ImGui::InputText("Username", username, IM_COUNTOF(username));
+    ImGui::InputTextWithHint("Password", "THIS IS STORED IN PLAIN TEXT", password, IM_COUNTOF(password),
+                             ImGuiInputTextFlags_Password);
+
+    // We should do a sanity check if the info works with a quick test curl request!
+    if (ImGui::Button("Save")) {
+        VALIDATION_CODE code = validate_server_info(std::string(urlbuf), std::string(username), std::string(password));
+
+        if (code == OK) {
+            app_state.server_base_addr = std::string(urlbuf);
+            app_state.server_username = std::string(username);
+            app_state.server_password = std::string(password);
+            app_state.show_server_settings = false;
+        } else {
+            last_error = code;
+            ImGui::OpenPopup("ERROR!");
+        }
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("ERROR!", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+        std::string error_text = "";
+        switch (last_error) {
+            case CURL_FAILURE:
+                error_text = "CURL has failed, your URL is most likely invalid.";
+                break;
+            case NO_RESPONSE:
+                error_text = "There was no subsonic response, your URL most likely not a navidrome server.";
+                break;
+            case SUBSONIC_NOT_OK:
+                error_text = "Subsonic returned a status failed on your request.";
+                break;
+            case INVALID_LOGIN_CRED:
+                error_text = "Your username or password was invalid for the server provided.";
+                break;
+            default: ;
+        }
+
+        ImGui::Text("%s", error_text.c_str());
+        ImGui::SetItemDefaultFocus();
+        if (ImGui::Button("OK", ImVec2(120, 0))) { ImGui::CloseCurrentPopup(); }
+
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
+
+    if (ImGui::Button("Cancel")) {
+        memset(urlbuf, 0, sizeof(urlbuf));
+        memset(username, 0, sizeof(username));
+        memset(password, 0, sizeof(password));
+        app_state.show_server_settings = false;
+    }
+
+    ImGui::End();
 }
 
 // * === ENTRY POINT ===
@@ -1115,31 +1231,7 @@ int main(int, char **) {
 
         // * For changing the server settings
         if (app_state.show_server_settings) {
-            ImGui::Begin("Server Settings", &app_state.show_server_settings);
-
-            static char urlbuf[256] = "";
-            static char username[32] = "";
-            static char password[32] = "";
-
-            ImGui::InputTextWithHint("Server url", "ex: http://192.168.4.165:4535", urlbuf, IM_COUNTOF(urlbuf));
-            ImGui::InputText("Username", username, IM_COUNTOF(username));
-            ImGui::InputTextWithHint("Password", "THIS IS STORED IN PLAIN TEXT", password, IM_COUNTOF(password), ImGuiInputTextFlags_Password);
-
-            if (ImGui::Button("Save")) {
-                app_state.server_base_addr = std::string(urlbuf);
-                app_state.server_username = std::string(username);
-                app_state.server_password = std::string(password);
-            }
-            ImGui::SameLine();
-
-            if (ImGui::Button("Cancel")) {
-                memset(urlbuf, 0, sizeof(urlbuf));
-                memset(username, 0, sizeof(username));
-                memset(password, 0, sizeof(password));
-                app_state.show_server_settings = false;
-            }
-
-            ImGui::End();
+            draw_settings_menu();
         }
 
         // This is where we render all of our draw calls we generated above with the widgets
