@@ -218,7 +218,8 @@ void load_and_play_file(const track_t &track) {
         track_path = track.path;
     } else {
         track_path = std::format(
-            "http://192.168.4.165:4533/rest/stream?id={}&u=admin&p=rat&c=ImMusic&v=1.16.1&f=json", track.song_id);
+            "{}/rest/stream?id={}&u={}&p={}&c=ImMusic&v=1.16.1&f=json", app_state.server_base_addr, track.song_id,
+            app_state.server_username, app_state.server_password);
     }
 
     if (!load_file(audio_context, track_path)) {
@@ -524,7 +525,8 @@ void draw_frametime() {
 // TODO: Make multi threaded!
 // !!! NOT ASYNC YET !!!
 void rebuild_remote_browser() {
-    std::string url = "http://192.168.4.165:4533/rest/getArtists.view?u=admin&p=rat&c=ImMusic&v=1.16.1&f=json";
+    std::string url = std::format("{}/rest/getArtists.view?u={}&p={}&c=ImMusic&v=1.16.1&f=json",
+                                  app_state.server_base_addr, app_state.server_username, app_state.server_password);
     network_response res = {0};
 
     CURL *curl = curl_easy_init();
@@ -577,8 +579,8 @@ void rebuild_remote_browser() {
 // !!! NOT ASYNC YET !!!
 void fetch_artist_albums(artist_node &artist) {
     std::string url = std::format(
-        "http://192.168.4.165:4533/rest/getArtist.view?id={}&u=admin&p=rat&c=ImMusic&v=1.16.1&f=json",
-        artist.artist_id);
+        "{}/rest/getArtist.view?id={}&u={}&p={}&c=ImMusic&v=1.16.1&f=json",
+        app_state.server_base_addr, artist.artist_id, app_state.server_username, app_state.server_password);
     network_response res = {0};
 
     CURL *curl = curl_easy_init();
@@ -671,7 +673,7 @@ void draw_remote_tree(std::vector<artist_node> &artists) {
 void draw_remote_browser() {
     if (app_state.should_rebuild_remote_browser) {
         debug_log.AddLog("[INFO]: Rebuilding remote artists list\n");
-        debug_log.AddLog("[INFO]: New URL: %s\n", app_state.server_url.c_str());
+        debug_log.AddLog("[INFO]: New URL: %s\n", app_state.server_base_addr.c_str());
         rebuild_remote_browser();
         app_state.should_rebuild_remote_browser = false;
     }
@@ -752,7 +754,8 @@ void display_remote_tracks(const std::vector<track_t> &tracks) {
 // !!! NOT ASYNC YET !!!
 void build_remote_media_view(std::string album_id) {
     std::string url = std::format(
-        "http://192.168.4.165:4533/rest/getAlbum.view?id={}&u=admin&p=rat&c=ImMusic&v=1.16.1&f=json", album_id);
+        "{}/rest/getAlbum.view?id={}&u={}&p={}&c=ImMusic&v=1.16.1&f=json", app_state.server_base_addr, album_id,
+        app_state.server_username, app_state.server_password);
 
     network_response res = {0};
     CURL *curl = curl_easy_init();
@@ -783,11 +786,17 @@ void build_remote_media_view(std::string album_id) {
         t.album_name = std::string(s["album"].get_string().value());
         t.artist_name = std::string(s["artist"].get_string().value());
         t.track_name = std::string(s["title"].get_string().value());
+
         if (s.find_field("track").error() == simdjson::error_code::NO_SUCH_FIELD) {
             t.track_number = 0;
         } else {
             t.track_number = s["track"].get_uint64();
         }
+
+        if (s.find_field("duration").error() == simdjson::error_code::NO_SUCH_FIELD) {
+            continue;
+        }
+
         t.duration = std::chrono::seconds(s["duration"].get_uint64().value());
         t.song_id = std::string(s["id"].get_string().value());
         app_state.media_view_tracks.push_back(t);
