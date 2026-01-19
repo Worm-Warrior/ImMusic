@@ -55,6 +55,7 @@ struct app_state_t {
     bool show_player_control = false;
     bool is_seeking = false;
     bool seek_queued = false;
+    bool should_repeat_autoplay;
 
     bool show_remote_browser = false;
     bool show_remote_media_view = false;
