@@ -10,6 +10,12 @@ enum VALIDATION_CODE {
     INVALID_LOGIN_CRED
 };
 
+
+/*
+ * The following code was taken from the libcurl examples page, code by Daniel Stenberg:
+ * https://curl.se/libcurl/c/getinmemory.html
+ */
+
 struct network_response {
     char *response;
     size_t size;
@@ -30,7 +36,6 @@ static size_t network_callback(char *data, size_t size, size_t nmemb, void *clie
 
     return realsize;
 }
-
 
 #define IMMUSIC_CURL_RESPONSE_H
 

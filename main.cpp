@@ -444,8 +444,14 @@ void draw_media_view(std::filesystem::path path) {
 
 void draw_player_controls() {
     ImGui::Begin("Player Control");
-    ImGui::LabelText("", "%s | %s | %s", app_state.cur_selected_track.track_name.c_str(),
-                     app_state.cur_selected_track.artist_name.c_str(), app_state.cur_selected_track.album_name.c_str());
+    if (!app_state.playing_tracks.empty()) {
+        ImGui::LabelText("##track_info_text", "%s | %s | %s", app_state.cur_selected_track.track_name.c_str(),
+                         app_state.cur_selected_track.artist_name.c_str(),
+                         app_state.cur_selected_track.album_name.c_str());
+    } else {
+        ImGui::LabelText("##no_track_text", "No Track Playing");
+    }
+
     if (ImGui::Button("Prev")) {
         if (app_state.cur_track_index - 1 < app_state.playing_tracks.size()) {
             app_state.cur_track_index--;
@@ -494,7 +500,12 @@ void draw_player_controls() {
     if (ImGui::Checkbox("Autoplay Loop", &app_state.should_repeat_autoplay)) {
     }
 
-    if (ImGui::SliderInt("Time", &app_state.seek_time, app_state.seek_min, app_state.seek_max)) {
+    int minutes = app_state.seek_time / 60;
+    int seconds = app_state.seek_time % 60;
+    char time_label[32];
+    snprintf(time_label, sizeof(time_label), "%d:%02d", minutes, seconds);
+
+    if (ImGui::SliderInt("Time", &app_state.seek_time, app_state.seek_min, app_state.seek_max, time_label)) {
         app_state.is_seeking = true;
     } else if (ImGui::IsItemDeactivated() && app_state.is_seeking != false) {
         debug_log.AddLog("Seeking released at: %d\n", app_state.seek_time);
@@ -1293,7 +1304,8 @@ int main(int, char **) {
                 app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
                 load_and_play_file(app_state.cur_selected_track);
                 debug_log.AddLog("[INFO]: Autoplaying %s", app_state.cur_selected_track.track_name.c_str());
-            } else if (cur_seconds >= app_state.cur_selected_track.duration.count() && app_state.should_repeat_autoplay) {
+            } else if (cur_seconds >= app_state.cur_selected_track.duration.count() && app_state.
+                       should_repeat_autoplay) {
                 app_state.cur_track_index = 0;
                 app_state.cur_selected_track = app_state.playing_tracks[0];
                 load_and_play_file(app_state.cur_selected_track);

@@ -1,5 +1,5 @@
 /*
- * This will be where we store the persistent data, such as the users music folder, etc.
+ * Currently not used, might be removed
  */
 
 #ifndef IMMUSIC_APP_SETTINGS_H
