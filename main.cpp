@@ -802,18 +802,20 @@ void build_remote_media_view(std::string album_id) {
     simdjson::ondemand::array song_array = obj["subsonic-response"]["album"]["song"].get_array();
 
     for (auto s: song_array) {
+        std::cout << s.raw_json() << "\n";
         track_t t;
         t.album_name = std::string(s["album"].get_string().value());
         t.artist_name = std::string(s["artist"].get_string().value());
         t.track_name = std::string(s["title"].get_string().value());
 
-        if (s.find_field("track").error() == simdjson::error_code::NO_SUCH_FIELD) {
+
+        if (s["track"].error()) {
             t.track_number = 0;
         } else {
             t.track_number = s["track"].get_uint64();
         }
 
-        if (s.find_field("duration").error() == simdjson::error_code::NO_SUCH_FIELD) {
+        if (s["duration"].error()) {
             continue;
         }
 
@@ -1104,7 +1106,7 @@ int main(int, char **) {
 
     // More window config
     SDL_GL_MakeCurrent(window, gl_context);
-    SDL_GL_SetSwapInterval(-1); // This is vsync
+    SDL_GL_SetSwapInterval(0); // This is vsync
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     SDL_ShowWindow(window);
 
