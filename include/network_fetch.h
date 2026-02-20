@@ -17,6 +17,7 @@ static std::mutex artist_staging_mutex;
 static std::atomic<bool> artists_ready = false;
 static std::atomic<bool> rebuild_browser_fetching = false;
 
+// Provide the fully formatted url
 void rebuild_remote_browser(std::string url) {
     network_response res = {0};
 
@@ -70,6 +71,7 @@ void rebuild_remote_browser(std::string url) {
     artists_ready.store(true);
 }
 
+// * We are just changing the array of albums for an artist, the rest of the info is done elsewhere.
 static std::vector<album_node> album_staging;
 static std::mutex album_staging_mutex;
 static std::atomic<bool> album_ready = false;
@@ -121,5 +123,61 @@ void fetch_artist_albums(std::string url) {
     }
 }
 
+static std::vector<track_t> media_staging;
+static std::mutex media_staging_mutex;
+static std::atomic<bool> media_ready = false;
+static std::atomic<bool> fetch_media = false;
+
+// * Again, provide the whole formatted URL as a string
+void build_remote_media_view(std::string url) {
+    network_response res = {0};
+    CURL *curl = curl_easy_init();
+
+    if (!curl) {
+        fprintf(stderr, "curl failed easy_init\n");
+        exit(1);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+    CURLcode result = curl_easy_perform(curl);
+
+    if (result != CURLE_OK) {
+        exit(1);
+    }
+
+    std::vector<track_t> local;
+
+    simdjson::ondemand::parser json_parser;
+    simdjson::padded_string data(res.response, res.size);
+    simdjson::ondemand::document doc = json_parser.iterate(data);
+    simdjson::ondemand::object obj = doc.get_object();
+
+    simdjson::ondemand::array song_array = obj["subsonic-response"]["album"]["song"].get_array();
+
+    for (auto s: song_array) {
+        std::cout << s.raw_json() << "\n";
+        track_t t;
+        t.album_name = std::string(s["album"].get_string().value());
+        t.artist_name = std::string(s["artist"].get_string().value());
+        t.track_name = std::string(s["title"].get_string().value());
+
+        if (s["track"].error()) {
+            t.track_number = 0;
+        } else {
+            t.track_number = s["track"].get_uint64();
+        }
+
+        if (s["duration"].error()) {
+            continue;
+        }
+
+        t.duration = std::chrono::seconds(s["duration"].get_uint64().value());
+        t.song_id = std::string(s["id"].get_string().value());
+        app_state.media_view_tracks.push_back(t);
+    }
+}
 
 #endif //IMMUSIC_NETWORK_FETCH_H
