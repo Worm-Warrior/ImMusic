@@ -39,6 +39,7 @@ add_executable(ImMusic
         include/remote_tree.h
         include/network.h
         include/app_settings.h
+        include/network_fetch.h
 )
 
 target_include_directories(ImMusic PRIVATE

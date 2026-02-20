@@ -1106,7 +1106,7 @@ int main(int, char **) {
 
     // More window config
     SDL_GL_MakeCurrent(window, gl_context);
-    SDL_GL_SetSwapInterval(0); // This is vsync
+    SDL_GL_SetSwapInterval(1); // This is vsync
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     SDL_ShowWindow(window);
 
