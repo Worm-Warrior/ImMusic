@@ -180,4 +180,50 @@ void build_remote_media_view(std::string url) {
     }
 }
 
+VALIDATION_CODE validate_server_info(const std::string &addr, const std::string &username,
+                                     const std::string &password) {
+
+    std::string url = std::format("{}/rest/ping?u={}&p={}&c=ImMusic&v=1.16.1&f=json", addr, username, password);
+    network_response res = {0};
+    CURL *curl = curl_easy_init();
+
+    if (!curl) {
+        fprintf(stderr, "curl failed easy_init\n");
+        return CURL_FAILURE;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+    CURLcode result = curl_easy_perform(curl);
+
+    if (result != CURLE_OK) {
+        fprintf(stderr, "CURLE WAS NOT OK\n");
+        return CURL_FAILURE;
+    }
+
+    simdjson::ondemand::parser json_parser;
+    simdjson::padded_string data(res.response, res.size);
+    simdjson::ondemand::document doc = json_parser.iterate(data);
+    simdjson::ondemand::object obj = doc.get_object();
+    if (obj.find_field("subsonic-response").error() == simdjson::error_code::NO_SUCH_FIELD) {
+        return NO_RESPONSE;
+    }
+
+    std::string_view status = obj["subsonic-response"]["status"].get_string();
+    if (status == "ok") {
+        return OK;
+    }
+
+    uint64_t code = obj["subsonic-response"]["error"]["code"].get_int64();
+
+    if (code == 40) {
+        return INVALID_LOGIN_CRED;
+    }
+
+    free(res.response);
+    curl_easy_cleanup(curl);
+}
+
 #endif //IMMUSIC_NETWORK_FETCH_H
