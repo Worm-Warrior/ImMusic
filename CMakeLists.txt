@@ -8,6 +8,7 @@ set(IMGUI_DIR external)
 find_package(SDL3 REQUIRED)
 find_package(CURL REQUIRED)
 find_package(PkgConfig REQUIRED)
+find_package(SDL3_image REQUIRED)
 pkg_check_modules(VLC REQUIRED libvlc)
 pkg_check_modules(TAGLIB REQUIRED taglib)
 
@@ -45,15 +46,13 @@ target_include_directories(ImMusic PRIVATE
         ${IMGUI_DIR}
         ${VLC_INCLUDE_DIRS}
         ${TAGLIB_INCLUDE_DIRS}
-        /usr/include/SDL3
-        /usr/include/SDL3/SDL3_image.h
         ${FFMPEG_INCLUDE_DIRS}
 )
 
 target_link_libraries(
         ImMusic
         SDL3::SDL3
-        /usr/lib64/libSDL3_image.so
+        SDL3_image::SDL3_image
         CURL::libcurl
         ${VLC_LIBRARIES}
         ${TAGLIB_LIBRARIES}

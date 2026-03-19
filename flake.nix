@@ -17,8 +17,11 @@
 
           # libs
           sdl3
-          pkgs.ffmpeg
+          sdl3-image
+          ffmpeg
           taglib_1
+          curl
+          libvlc
         ];
 
         # Optional: set any env vars your project needs
