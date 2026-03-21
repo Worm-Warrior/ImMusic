@@ -567,6 +567,11 @@ void rebuild_remote_browser() {
 
     simdjson::ondemand::parser json_parser;
     simdjson::padded_string data(res.response, res.size);
+
+    // data has everything we need now, can cleanup the curl stuff.
+    free(res.response);
+    curl_easy_cleanup(curl);
+
     simdjson::ondemand::document doc = json_parser.iterate(data);
     simdjson::ondemand::object obj = doc.get_object();
 
@@ -591,8 +596,6 @@ void rebuild_remote_browser() {
     }
 
     debug_log.AddLog("[INFO]: Added %lu artists\n", app_state.artists.size());
-    free(res.response);
-    curl_easy_cleanup(curl);
 }
 
 // TODO: Make multi threaded!
@@ -621,6 +624,11 @@ void fetch_artist_albums(artist_node &artist) {
     }
     simdjson::ondemand::parser json_parser;
     simdjson::padded_string data(res.response, res.size);
+
+    // data has everything we need, free curl stuff before parsing
+    free(res.response);
+    curl_easy_cleanup(curl);
+
     simdjson::ondemand::document doc = json_parser.iterate(data);
     simdjson::ondemand::object obj = doc.get_object();
 
@@ -637,8 +645,6 @@ void fetch_artist_albums(artist_node &artist) {
         artist.albums.push_back(a);
     }
 
-    free(res.response);
-    curl_easy_cleanup(curl);
 }
 
 
@@ -796,6 +802,11 @@ void build_remote_media_view(std::string album_id) {
     }
     simdjson::ondemand::parser json_parser;
     simdjson::padded_string data(res.response, res.size);
+
+    // Forgot to do this even at the end of the function, whoops.
+    free(res.response);
+    curl_easy_cleanup(curl);
+
     simdjson::ondemand::document doc = json_parser.iterate(data);
     simdjson::ondemand::object obj = doc.get_object();
 
@@ -949,11 +960,17 @@ VALIDATION_CODE validate_server_info(const std::string &addr, const std::string 
 
     if (result != CURLE_OK) {
         fprintf(stderr, "CURLE WAS NOT OK\n");
+        free(res.response);
+        curl_easy_cleanup(curl);
         return CURL_FAILURE;
     }
 
     simdjson::ondemand::parser json_parser;
     simdjson::padded_string data(res.response, res.size);
+
+    free(res.response);
+    curl_easy_cleanup(curl);
+
     simdjson::ondemand::document doc = json_parser.iterate(data);
     simdjson::ondemand::object obj = doc.get_object();
     if (obj.find_field("subsonic-response").error() == simdjson::error_code::NO_SUCH_FIELD) {
