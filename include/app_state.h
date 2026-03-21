@@ -7,7 +7,7 @@
 
 #include "file_tree.h"
 #include "track.h"
-#include "remote_tree.h"
+#include "network.h"
 #include "app_settings.h"
 
 // * big -> small fields

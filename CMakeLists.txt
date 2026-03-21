@@ -36,10 +36,9 @@ add_executable(ImMusic
         external/tinyfiledialogs.h
         external/tinyfiledialogs.c
         external/simdjson.cpp
-        include/remote_tree.h
         include/network.h
         include/app_settings.h
-        include/network_fetch.h
+        include/network.cpp
 )
 
 target_include_directories(ImMusic PRIVATE
