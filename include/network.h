@@ -1,4 +1,6 @@
 #ifndef IMMUSIC_CURL_RESPONSE_H
+#include <condition_variable>
+#include "track.h"
 #include <atomic>
 #include <mutex>
 #include <queue>
@@ -76,14 +78,25 @@ struct fetch_request {
     REQ_TYPE type;
     std::string artist_id;
     std::string album_id;
+    std::string url;
+};
+
+struct fetch_result {
+    fetch_request req;
+
+    std::vector<artist_node> artists;
+    std::vector<album_node> albums;
+    std::vector<track_t> tracks;
 };
 
 struct fetch_system {
     std::mutex req_mutex;
     std::queue<fetch_request> req_q;
+    std::condition_variable req_cv;
 
     std::mutex res_mutex;
-    std::queue<fetch_request> res_q;
+    std::queue<fetch_result> res_q;
+    std::condition_variable res_cv;
 
     std::atomic<bool> running{true};
     std::thread worker;
@@ -91,13 +104,13 @@ struct fetch_system {
 
 extern fetch_system net;
 
-void fetch_all_artists(std::string url);
+void fetch_all_artists(fetch_request req);
 
-void fetch_artists_albums(artist_node &artist);
+void fetch_artists_albums(fetch_request req);
 
-void fetch_album_songs(std::string album_id);
+void fetch_album_songs(fetch_request req);
 
-
+void network_worker();
 
 #define IMMUSIC_CURL_RESPONSE_H
 
