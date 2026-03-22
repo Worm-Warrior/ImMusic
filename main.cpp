@@ -81,7 +81,10 @@ void check_network() {
             }
             break;
         case SONGS:
-            app_state.media_view_tracks = std::move(f.tracks);
+            if (f.req.album_id == app_state.selected_album)
+                app_state.media_view_tracks = std::move(f.tracks);
+            else
+                fprintf(stderr, "tried to load songs from stale album!\n");
             break;
     }
 }
