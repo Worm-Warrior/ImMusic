@@ -149,6 +149,64 @@ void fetch_artists_albums(fetch_request req, fetch_system& net) {
 }
 
 void fetch_album_songs(fetch_request req, fetch_system& net) {
-    fprintf(stderr, "IMPLEMENT ME\n");
-    exit(1);
+    fetch_result f_res;
+
+    network_response res = {0};
+    CURL *curl = curl_easy_init();
+
+    if (!curl) {
+        fprintf(stderr, "curl failed easy_init\n");
+        exit(1);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
+    curl_easy_setopt(curl, CURLOPT_URL, req.url.c_str());
+
+    CURLcode result = curl_easy_perform(curl);
+
+    if (result != CURLE_OK) {
+        exit(1);
+    }
+    simdjson::ondemand::parser json_parser;
+    simdjson::padded_string data(res.response, res.size);
+
+    // Forgot to do this even at the end of the function, whoops.
+    free(res.response);
+    curl_easy_cleanup(curl);
+
+    simdjson::ondemand::document doc = json_parser.iterate(data);
+    simdjson::ondemand::object obj = doc.get_object();
+
+    simdjson::ondemand::array song_array = obj["subsonic-response"]["album"]["song"].get_array();
+
+    for (auto s: song_array) {
+        std::cout << s.raw_json() << "\n";
+        track_t t;
+        t.album_name = std::string(s["album"].get_string().value());
+        t.artist_name = std::string(s["artist"].get_string().value());
+        t.track_name = std::string(s["title"].get_string().value());
+
+
+        if (s["track"].error()) {
+            t.track_number = 0;
+        } else {
+            t.track_number = s["track"].get_uint64();
+        }
+
+        if (s["duration"].error()) {
+            continue;
+        }
+
+        t.duration = std::chrono::seconds(s["duration"].get_uint64().value());
+        t.song_id = std::string(s["id"].get_string().value());
+        f_res.tracks.push_back(t);
+    }
+
+    f_res.req = std::move(req);
+
+    {
+        std::unique_lock lock(net.res_mutex);
+        net.res_q.push(std::move(f_res));
+    }
 }

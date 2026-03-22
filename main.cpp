@@ -583,8 +583,7 @@ void rebuild_remote_browser() {
     app_state.fetch.req_cv.notify_one();
 }
 
-// TODO: Make multi threaded!
-// !!! NOT ASYNC YET !!!
+// Now multi-threaded
 void fetch_artist_albums(artist_node &artist) {
     fetch_request r;
     r.url = std::format(
@@ -744,61 +743,22 @@ void display_remote_tracks(const std::vector<track_t> &tracks) {
 // TODO: Make multi threaded!
 // !!! NOT ASYNC YET !!!
 void build_remote_media_view(std::string album_id) {
-    std::string url = std::format(
+    fetch_request r;
+
+    r.url = std::format(
         "{}/rest/getAlbum.view?id={}&u={}&p={}&c=ImMusic&v=1.16.1&f=json", app_state.server_base_addr, album_id,
         app_state.server_username, app_state.server_password);
 
-    network_response res = {0};
-    CURL *curl = curl_easy_init();
+    r.type = SONGS;
+    r.album_id = album_id;
 
-    if (!curl) {
-        fprintf(stderr, "curl failed easy_init\n");
-        exit(1);
+    {
+        std::unique_lock lock(app_state.fetch.req_mutex);
+        app_state.fetch.req_q.push(r);
+        fprintf(stderr, "request pushed\n");
     }
 
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-
-    CURLcode result = curl_easy_perform(curl);
-
-    if (result != CURLE_OK) {
-        exit(1);
-    }
-    simdjson::ondemand::parser json_parser;
-    simdjson::padded_string data(res.response, res.size);
-
-    // Forgot to do this even at the end of the function, whoops.
-    free(res.response);
-    curl_easy_cleanup(curl);
-
-    simdjson::ondemand::document doc = json_parser.iterate(data);
-    simdjson::ondemand::object obj = doc.get_object();
-
-    simdjson::ondemand::array song_array = obj["subsonic-response"]["album"]["song"].get_array();
-
-    for (auto s: song_array) {
-        std::cout << s.raw_json() << "\n";
-        track_t t;
-        t.album_name = std::string(s["album"].get_string().value());
-        t.artist_name = std::string(s["artist"].get_string().value());
-        t.track_name = std::string(s["title"].get_string().value());
-
-
-        if (s["track"].error()) {
-            t.track_number = 0;
-        } else {
-            t.track_number = s["track"].get_uint64();
-        }
-
-        if (s["duration"].error()) {
-            continue;
-        }
-
-        t.duration = std::chrono::seconds(s["duration"].get_uint64().value());
-        t.song_id = std::string(s["id"].get_string().value());
-        app_state.media_view_tracks.push_back(t);
-    }
+    app_state.fetch.req_cv.notify_one();
 }
 
 void draw_remote_media_view() {
