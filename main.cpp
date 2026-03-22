@@ -59,6 +59,29 @@ static bool has_audio_init = false;
 // * Cache of the filesystem
 static file_system_cache_t file_system_cache;
 
+void check_network() {
+    std::unique_lock lock(app_state.fetch.res_mutex);
+    if (app_state.fetch.res_q.empty()) return;
+
+    fetch_result f = app_state.fetch.res_q.front();
+    app_state.fetch.res_q.pop();
+    lock.unlock();
+
+    switch (f.req.type) {
+        case ARTISTS:
+            app_state.artists = std::move(f.artists);
+            break;
+        case ARTIST_ALBUMS:
+            for (artist_node& a: app_state.artists)
+                if (a.artist_id == f.req.artist_id)
+                    a.albums = std::move(f.albums);
+            break;
+        case SONGS:
+            app_state.media_view_tracks = std::move(f.tracks);
+            break;
+    }
+}
+
 // This makes it so that the whole window is one big dock space so we get the windows to act the way we want.
 // ? Should I move this to another file or is it fine here?
 void draw_dockspace() {
@@ -547,7 +570,7 @@ void draw_frametime() {
 void rebuild_remote_browser() {
     fetch_request r;
     r.url = std::format("{}/rest/getArtists.view?u={}&p={}&c=ImMusic&v=1.16.1&f=json",
-                                  app_state.server_base_addr, app_state.server_username, app_state.server_password);
+                        app_state.server_base_addr, app_state.server_username, app_state.server_password);
     r.type = ARTISTS;
 
     {
@@ -556,7 +579,6 @@ void rebuild_remote_browser() {
         fprintf(stderr, "request pushed\n");
     }
     app_state.fetch.req_cv.notify_one();
-
 }
 
 // TODO: Make multi threaded!
@@ -605,7 +627,6 @@ void fetch_artist_albums(artist_node &artist) {
 
         artist.albums.push_back(a);
     }
-
 }
 
 
@@ -1199,6 +1220,7 @@ int main(int, char **) {
         }
 
         // TODO: add network check function here
+        check_network();
 
         // * This is the file browser window stuff
         if (app_state.show_file_system_window && !app_state.show_remote_browser) {
