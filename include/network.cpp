@@ -97,8 +97,55 @@ void fetch_all_artists(fetch_request req, fetch_system& net) {
 }
 
 void fetch_artists_albums(fetch_request req, fetch_system& net) {
-    fprintf(stderr, "IMPLEMENT ME\n");
-    exit(1);
+    fetch_result f_res;
+
+   network_response res = {0};
+
+    CURL *curl = curl_easy_init();
+
+    if (!curl) {
+        fprintf(stderr, "curl failed easy_init\n");
+        exit(1);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
+    curl_easy_setopt(curl, CURLOPT_URL, req.url.c_str());
+
+    CURLcode result = curl_easy_perform(curl);
+
+    if (result != CURLE_OK) {
+        exit(1);
+    }
+    simdjson::ondemand::parser json_parser;
+    simdjson::padded_string data(res.response, res.size);
+
+    // data has everything we need, free curl stuff before parsing
+    free(res.response);
+    curl_easy_cleanup(curl);
+
+    simdjson::ondemand::document doc = json_parser.iterate(data);
+    simdjson::ondemand::object obj = doc.get_object();
+
+    simdjson::ondemand::array album_array = obj["subsonic-response"]["artist"]["album"].get_array();
+
+    for (auto album: album_array) {
+        album_node a;
+        std::string_view id = album["id"].get_string();
+        std::string_view name = album["name"].get_string();
+        a.album_id = std::string(id);
+        a.album_name = std::string(name);
+        a.track_count = album["songCount"].get_int64();
+
+        f_res.albums.push_back(a);
+    }
+
+    f_res.req = std::move(req);
+
+    {
+        std::unique_lock lock(net.res_mutex);
+        net.res_q.push(std::move(f_res));
+    }
 }
 
 void fetch_album_songs(fetch_request req, fetch_system& net) {

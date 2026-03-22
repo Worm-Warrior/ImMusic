@@ -72,9 +72,13 @@ void check_network() {
             app_state.artists = std::move(f.artists);
             break;
         case ARTIST_ALBUMS:
-            for (artist_node& a: app_state.artists)
-                if (a.artist_id == f.req.artist_id)
+            for (artist_node &a: app_state.artists) {
+                if (a.artist_id == f.req.artist_id) {
                     a.albums = std::move(f.albums);
+                    a.status = READY;
+                    break;
+                }
+            }
             break;
         case SONGS:
             app_state.media_view_tracks = std::move(f.tracks);
@@ -523,8 +527,8 @@ void draw_player_controls() {
     if (ImGui::Checkbox("Autoplay Loop", &app_state.should_repeat_autoplay)) {
     }
 
-    int minutes = app_state.seek_time / 60;
-    int seconds = app_state.seek_time % 60;
+    const int minutes = app_state.seek_time / 60;
+    const int seconds = app_state.seek_time % 60;
     char time_label[32];
     snprintf(time_label, sizeof(time_label), "%d:%02d", minutes, seconds);
 
@@ -565,8 +569,6 @@ void draw_frametime() {
 // * === REMOTE BROWSER ===
 
 // This function uses network_response and network_callback defined in network.h
-// TODO: Make multi threaded!
-// !!! NOT ASYNC YET !!!
 void rebuild_remote_browser() {
     fetch_request r;
     r.url = std::format("{}/rest/getArtists.view?u={}&p={}&c=ImMusic&v=1.16.1&f=json",
@@ -584,49 +586,20 @@ void rebuild_remote_browser() {
 // TODO: Make multi threaded!
 // !!! NOT ASYNC YET !!!
 void fetch_artist_albums(artist_node &artist) {
-    std::string url = std::format(
+    fetch_request r;
+    r.url = std::format(
         "{}/rest/getArtist.view?id={}&u={}&p={}&c=ImMusic&v=1.16.1&f=json",
         app_state.server_base_addr, artist.artist_id, app_state.server_username, app_state.server_password);
-    network_response res = {0};
 
-    CURL *curl = curl_easy_init();
+    r.type = ARTIST_ALBUMS;
+    r.artist_id = artist.artist_id;
 
-    if (!curl) {
-        fprintf(stderr, "curl failed easy_init\n");
-        exit(1);
+    {
+        std::unique_lock lock(app_state.fetch.req_mutex);
+        app_state.fetch.req_q.push(r);
+        fprintf(stderr, "request pushed\n");
     }
-
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-
-    CURLcode result = curl_easy_perform(curl);
-
-    if (result != CURLE_OK) {
-        exit(1);
-    }
-    simdjson::ondemand::parser json_parser;
-    simdjson::padded_string data(res.response, res.size);
-
-    // data has everything we need, free curl stuff before parsing
-    free(res.response);
-    curl_easy_cleanup(curl);
-
-    simdjson::ondemand::document doc = json_parser.iterate(data);
-    simdjson::ondemand::object obj = doc.get_object();
-
-    simdjson::ondemand::array album_array = obj["subsonic-response"]["artist"]["album"].get_array();
-
-    for (auto album: album_array) {
-        album_node a;
-        std::string_view id = album["id"].get_string();
-        std::string_view name = album["name"].get_string();
-        a.album_id = std::string(id);
-        a.album_name = std::string(name);
-        a.track_count = album["songCount"].get_int64();
-
-        artist.albums.push_back(a);
-    }
+    app_state.fetch.req_cv.notify_one();
 }
 
 
@@ -651,27 +624,37 @@ void draw_remote_tree(std::vector<artist_node> &artists) {
         ImGui::Text("Artist");
 
         if (open) {
-            if (a.albums.empty()) {
-                debug_log.AddLog("[INFO]: Fetching albums for %s\n", a.artist_name.c_str());
-                fetch_artist_albums(a);
-            }
-
-            for (auto album: a.albums) {
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::TreeNodeEx(album.album_name.c_str(),
-                                  ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet |
-                                  ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAllColumns);
-                if (ImGui::IsItemClicked()) {
-                    debug_log.AddLog("[INFO]: Selected album %s\n", album.album_name.c_str());
-                    app_state.selected_album = album.album_id;
-                    app_state.show_remote_media_view = true;
-                    app_state.show_media_view = false;
-                }
-                ImGui::TableNextColumn();
-                ImGui::Text("%d", album.track_count);
-                ImGui::TableNextColumn();
-                ImGui::Text("Album");
+            switch (a.status) {
+                case IDLE:
+                    debug_log.AddLog("[INFO]: Fetching albums for %s\n", a.artist_name.c_str());
+                    fetch_artist_albums(a);
+                    a.status = LOADING;
+                    break;
+                case LOADING:
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::Text("Loading...");
+                    break;
+                case READY:
+                    for (auto &album: a.albums) {
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        ImGui::TreeNodeEx(album.album_name.c_str(),
+                                          ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet |
+                                          ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAllColumns);
+                        if (ImGui::IsItemClicked()) {
+                            debug_log.AddLog("[INFO]: Selected album %s\n", album.album_name.c_str());
+                            app_state.selected_album = album.album_id;
+                            fprintf(stderr, "changed selected_album\n");
+                            app_state.show_remote_media_view = true;
+                            app_state.show_media_view = false;
+                        }
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%d", album.track_count);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("Album");
+                    }
+                    break;
             }
             ImGui::TreePop();
         }
@@ -820,6 +803,10 @@ void build_remote_media_view(std::string album_id) {
 
 void draw_remote_media_view() {
     if (app_state.cur_album != app_state.selected_album) {
+        fprintf(stderr, "album changed from %s to %s\n", 
+                app_state.cur_album.c_str(), 
+                app_state.selected_album.c_str());
+
         app_state.cur_album = app_state.selected_album;
         app_state.media_view_tracks.clear();
         build_remote_media_view(app_state.cur_album);
@@ -827,9 +814,9 @@ void draw_remote_media_view() {
     }
     ImGui::Begin("Remote Media View", &app_state.show_remote_media_view);
     ImGuiTableFlags media_table_flags =
-            ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
-            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable |
-            ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY;
+        ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
+        ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable |
+        ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY;
 
     if (ImGui::BeginTable("media_view_remote", 5, media_table_flags)) {
         ImGui::TableSetupColumn(
