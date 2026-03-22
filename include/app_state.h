@@ -13,6 +13,7 @@
 // * big -> small fields
 struct app_state_t {
     app_settings_t app_settings;
+    fetch_system fetch;
 
     std::vector<track_t> media_view_tracks;
     std::vector<track_t> playing_tracks;
@@ -63,4 +64,7 @@ struct app_state_t {
 
     bool should_rebuild_remote_browser = true;
 };
+
+extern app_state_t app_state;
+
 #endif //IMMUSIC_APP_STATE_H

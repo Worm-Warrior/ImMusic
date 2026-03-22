@@ -102,15 +102,13 @@ struct fetch_system {
     std::thread worker;
 };
 
-extern fetch_system net;
+void fetch_all_artists(fetch_request req, fetch_system &net);
 
-void fetch_all_artists(fetch_request req);
+void fetch_artists_albums(fetch_request req, fetch_system &net);
 
-void fetch_artists_albums(fetch_request req);
+void fetch_album_songs(fetch_request req, fetch_system &net);
 
-void fetch_album_songs(fetch_request req);
-
-void network_worker();
+void network_worker(fetch_system &net);
 
 #define IMMUSIC_CURL_RESPONSE_H
 

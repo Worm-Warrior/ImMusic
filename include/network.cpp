@@ -3,29 +3,29 @@
 #include <curl/curl.h>
 #include <mutex>
 
-fetch_system net;
-
-void network_worker() {
+void network_worker(fetch_system& net) {
+    fprintf(stderr, "network_worker started\n");
     while (net.running) {
         fetch_request rq;
-
         {
             std::unique_lock lock(net.req_mutex);
-            net.req_cv.wait(lock, []{return !net.req_q.empty() || !net.running;});
+            net.req_cv.wait(lock, [&net]{return !net.req_q.empty() || !net.running;});
+            fprintf(stderr, "network_worker woke up\n");
             if (!net.running) break;
             rq = net.req_q.front();
             net.req_q.pop();
         }
 
+        fprintf(stderr, "network_worker dispatching\n");
         switch(rq.type) {
             case ARTISTS:
-                fetch_all_artists(rq);
+                fetch_all_artists(rq, net);
                 break;
             case ARTIST_ALBUMS:
-                fetch_artists_albums(rq);
+                fetch_artists_albums(rq, net);
                 break;
             case SONGS:
-                fetch_album_songs(rq);
+                fetch_album_songs(rq, net);
                 break;
             default:
             fprintf(stderr, "UNREACHABLE CASE IN network_worker EXPLODING\n");
@@ -34,7 +34,7 @@ void network_worker() {
     }
 }
 
-void fetch_all_artists(fetch_request req) {
+void fetch_all_artists(fetch_request req, fetch_system& net) {
     fetch_result f_res;
 
     network_response res = {0};
@@ -92,16 +92,16 @@ void fetch_all_artists(fetch_request req) {
 
     {
         std::unique_lock lock(net.res_mutex);
-        net.res_q.push(f_res);
+        net.res_q.push(std::move(f_res));
     }
 }
 
-void fetch_artists_albums(fetch_request req) {
+void fetch_artists_albums(fetch_request req, fetch_system& net) {
     fprintf(stderr, "IMPLEMENT ME\n");
     exit(1);
 }
 
-void fetch_album_songs(fetch_request req) {
+void fetch_album_songs(fetch_request req, fetch_system& net) {
     fprintf(stderr, "IMPLEMENT ME\n");
     exit(1);
 }

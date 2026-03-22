@@ -15,6 +15,7 @@
 #include <fstream>
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
+#include <mutex>
 
 #include "include/app_state.h"
 #include "external/imgui_internal.h"
@@ -34,6 +35,7 @@
 #include "include/network.h"
 #include <curl/curl.h>
 #include "external/simdjson.h"
+#include "include/network.h"
 
 extern "C" {
 #include <ffmpeg/libavcodec/avcodec.h>
@@ -43,11 +45,9 @@ static constexpr std::string_view valid_formats[] = {
     ".mp3", ".flac", ".wav", ".ogg", ".opus", ".aac", ".m4a"
 };
 
-// TODO: this needs a big refactor to keep the main.cpp small and more readable.
-
 
 // * This will be our whole app state in one big FAT GLOBAL struct.
-static app_state_t app_state;
+app_state_t app_state;
 // * This is also a global for logging anything in this file!
 static app_log debug_log;
 // * Thread that we use to decode.
@@ -545,8 +545,18 @@ void draw_frametime() {
 // TODO: Make multi threaded!
 // !!! NOT ASYNC YET !!!
 void rebuild_remote_browser() {
-    std::string url = std::format("{}/rest/getArtists.view?u={}&p={}&c=ImMusic&v=1.16.1&f=json",
+    fetch_request r;
+    r.url = std::format("{}/rest/getArtists.view?u={}&p={}&c=ImMusic&v=1.16.1&f=json",
                                   app_state.server_base_addr, app_state.server_username, app_state.server_password);
+    r.type = ARTISTS;
+
+    {
+        std::unique_lock lock(app_state.fetch.req_mutex);
+        app_state.fetch.req_q.push(r);
+        fprintf(stderr, "request pushed\n");
+    }
+    app_state.fetch.req_cv.notify_one();
+
 }
 
 // TODO: Make multi threaded!
@@ -1125,6 +1135,7 @@ int main(int, char **) {
     glClear(GL_COLOR_BUFFER_BIT);
 
     app_state.is_running = true;
+    app_state.fetch.worker = std::thread(network_worker, std::ref(app_state.fetch));
 
     // * === MAIN LOOP ===
     while (app_state.is_running) {
@@ -1186,6 +1197,8 @@ int main(int, char **) {
         if (ImGui::IsKeyReleased(ImGuiKey_F3)) {
             app_state.show_frametime = !app_state.show_frametime;
         }
+
+        // TODO: add network check function here
 
         // * This is the file browser window stuff
         if (app_state.show_file_system_window && !app_state.show_remote_browser) {
@@ -1285,6 +1298,9 @@ int main(int, char **) {
         SDL_GL_SwapWindow(window);
     }
     save_settings_to_file();
+    app_state.fetch.running = false;
+    app_state.fetch.req_cv.notify_all();
+    app_state.fetch.worker.join();
     // Shutdown and cleanup
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
