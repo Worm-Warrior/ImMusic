@@ -743,8 +743,6 @@ void display_remote_tracks(const std::vector<track_t> &tracks) {
     }
 }
 
-// TODO: Make multi threaded!
-// !!! NOT ASYNC YET !!!
 void build_remote_media_view(std::string album_id) {
     fetch_request r;
 
