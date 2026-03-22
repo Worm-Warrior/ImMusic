@@ -95,3 +95,13 @@ void fetch_all_artists(fetch_request req) {
         net.res_q.push(f_res);
     }
 }
+
+void fetch_artists_albums(fetch_request req) {
+    fprintf(stderr, "IMPLEMENT ME\n");
+    exit(1);
+}
+
+void fetch_album_songs(fetch_request req) {
+    fprintf(stderr, "IMPLEMENT ME\n");
+    exit(1);
+}
