@@ -35,7 +35,6 @@
 #include "include/network.h"
 #include <curl/curl.h>
 #include "external/simdjson.h"
-#include "include/network.h"
 
 extern "C" {
 #include <ffmpeg/libavcodec/avcodec.h>
@@ -63,7 +62,7 @@ void check_network() {
     std::unique_lock lock(app_state.fetch.res_mutex);
     if (app_state.fetch.res_q.empty()) return;
 
-    fetch_result f = app_state.fetch.res_q.front();
+    fetch_result f = std::move(app_state.fetch.res_q.front());
     app_state.fetch.res_q.pop();
     lock.unlock();
 

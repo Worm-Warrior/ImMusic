@@ -1,13 +1,16 @@
 #ifndef IMMUSIC_CURL_RESPONSE_H
+#define IMMUSIC_CURL_RESPONSE_H
 #include <condition_variable>
 #include "track.h"
 #include <atomic>
 #include <mutex>
 #include <queue>
+#include <vector>
 #include <thread>
 #include <string>
 #include <cstdlib>
 #include <cstring>
+#include <cstdint>
 
 enum FETCH_STATUS {
     IDLE,
@@ -112,7 +115,5 @@ void fetch_album_songs(fetch_request req, fetch_system &net);
 void network_worker(fetch_system &net);
 
 void test_server_settings(fetch_request req, fetch_system &net);
-
-#define IMMUSIC_CURL_RESPONSE_H
 
 #endif //IMMUSIC_CURL_RESPONSE_H

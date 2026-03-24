@@ -62,5 +62,5 @@ target_link_libraries(
 
 target_compile_options(ImMusic PRIVATE
         ${FFMPEG_CFLAGS_OTHER}
-        $<$<CONFIG:Debug>:-Wall -Wextra -Wimplicit-fallthrough>
+        $<$<CONFIG:Debug>:-Wall;-Wextra;-Wimplicit-fallthrough>
 )
