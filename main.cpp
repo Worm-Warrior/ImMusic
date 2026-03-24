@@ -297,6 +297,9 @@ void load_and_play_file(const track_t &track) {
 }
 
 void draw_file_system_window() {
+    const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 20, main_viewport->WorkPos.y + 20), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(400, 600), ImGuiCond_FirstUseEver);
     ImGui::Begin("Local File System", &app_state.show_file_system_window);
     static ImGuiTableFlags table_flags =
             ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
@@ -456,6 +459,9 @@ void draw_media_view(std::filesystem::path path) {
         return;
     }
 
+    const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
     ImGui::Begin("Media View", &app_state.show_media_view);
     ImGuiTableFlags media_table_flags =
             ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
@@ -483,6 +489,9 @@ void draw_media_view(std::filesystem::path path) {
  * */
 
 void draw_player_controls() {
+    const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 430), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(600, 200), ImGuiCond_FirstUseEver);
     ImGui::Begin("Player Control");
     if (!app_state.playing_tracks.empty()) {
         ImGui::LabelText("##track_info_text", "%s | %s | %s", app_state.cur_selected_track.track_name.c_str(),
@@ -681,6 +690,9 @@ void draw_remote_browser() {
         app_state.should_rebuild_remote_browser = false;
     }
 
+    const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 20, main_viewport->WorkPos.y + 20), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(400, 600), ImGuiCond_FirstUseEver);
     ImGui::Begin("Remote Browser", &app_state.show_remote_browser);
 
     ImGuiTableFlags table_flags =
@@ -783,6 +795,9 @@ void draw_remote_media_view() {
         build_remote_media_view(app_state.cur_album);
         debug_log.AddLog("[INFO]: Rebuilding remote media view\n");
     }
+    const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
     ImGui::Begin("Remote Media View", &app_state.show_remote_media_view);
     ImGuiTableFlags media_table_flags =
         ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
@@ -896,6 +911,9 @@ void validate_server_info(const std::string &addr, const std::string &username,
 }
 
 void draw_settings_menu() {
+    const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(500, 300), ImGuiCond_FirstUseEver);
     ImGui::Begin("Server Settings", &app_state.show_server_settings);
 
     static char urlbuf[256] = "";
