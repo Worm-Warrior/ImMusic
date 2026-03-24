@@ -15,6 +15,7 @@
 #include <fstream>
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
+#include <mutex>
 
 #include "include/app_state.h"
 #include "external/imgui_internal.h"
@@ -34,6 +35,7 @@
 #include "include/network.h"
 #include <curl/curl.h>
 #include "external/simdjson.h"
+#include "include/network.h"
 
 extern "C" {
 #include <ffmpeg/libavcodec/avcodec.h>
@@ -43,11 +45,9 @@ static constexpr std::string_view valid_formats[] = {
     ".mp3", ".flac", ".wav", ".ogg", ".opus", ".aac", ".m4a"
 };
 
-// TODO: this needs a big refactor to keep the main.cpp small and more readable.
-
 
 // * This will be our whole app state in one big FAT GLOBAL struct.
-static app_state_t app_state;
+app_state_t app_state;
 // * This is also a global for logging anything in this file!
 static app_log debug_log;
 // * Thread that we use to decode.
@@ -58,6 +58,47 @@ static audio_context_t audio_context;
 static bool has_audio_init = false;
 // * Cache of the filesystem
 static file_system_cache_t file_system_cache;
+
+void check_network() {
+    std::unique_lock lock(app_state.fetch.res_mutex);
+    if (app_state.fetch.res_q.empty()) return;
+
+    fetch_result f = app_state.fetch.res_q.front();
+    app_state.fetch.res_q.pop();
+    lock.unlock();
+
+    switch (f.req.type) {
+        case ARTISTS:
+            app_state.artists = std::move(f.artists);
+            break;
+        case ARTIST_ALBUMS:
+            for (artist_node &a: app_state.artists) {
+                if (a.artist_id == f.req.artist_id) {
+                    a.albums = std::move(f.albums);
+                    a.status = READY;
+                    break;
+                }
+            }
+            break;
+        case SONGS:
+            if (f.req.album_id == app_state.selected_album)
+                app_state.media_view_tracks = std::move(f.tracks);
+            else
+                fprintf(stderr, "tried to load songs from stale album!\n");
+            break;
+        case SETTINGS:
+            if (f.code == VALIDATION_CODE::OK) {
+                printf("ok\n");
+            }
+            if (f.code == VALIDATION_CODE::INVALID_LOGIN_CRED) {
+                printf("invalid cred\n");
+            }
+            if (f.code == VALIDATION_CODE::NO_RESPONSE) {
+                printf("no response\n");
+            }
+            break;
+    }
+}
 
 // This makes it so that the whole window is one big dock space so we get the windows to act the way we want.
 // ? Should I move this to another file or is it fine here?
@@ -500,8 +541,8 @@ void draw_player_controls() {
     if (ImGui::Checkbox("Autoplay Loop", &app_state.should_repeat_autoplay)) {
     }
 
-    int minutes = app_state.seek_time / 60;
-    int seconds = app_state.seek_time % 60;
+    const int minutes = app_state.seek_time / 60;
+    const int seconds = app_state.seek_time % 60;
     char time_label[32];
     snprintf(time_label, sizeof(time_label), "%d:%02d", minutes, seconds);
 
@@ -542,103 +583,36 @@ void draw_frametime() {
 // * === REMOTE BROWSER ===
 
 // This function uses network_response and network_callback defined in network.h
-// TODO: Make multi threaded!
-// !!! NOT ASYNC YET !!!
 void rebuild_remote_browser() {
-    std::string url = std::format("{}/rest/getArtists.view?u={}&p={}&c=ImMusic&v=1.16.1&f=json",
-                                  app_state.server_base_addr, app_state.server_username, app_state.server_password);
-    network_response res = {0};
+    fetch_request r;
+    r.url = std::format("{}/rest/getArtists.view?u={}&p={}&c=ImMusic&v=1.16.1&f=json",
+                        app_state.server_base_addr, app_state.server_username, app_state.server_password);
+    r.type = ARTISTS;
 
-    CURL *curl = curl_easy_init();
-
-    if (!curl) {
-        exit(1);
+    {
+        std::unique_lock lock(app_state.fetch.req_mutex);
+        app_state.fetch.req_q.push(r);
+        fprintf(stderr, "request pushed\n");
     }
-
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-
-    CURLcode result = curl_easy_perform(curl);
-
-    if (result != CURLE_OK) {
-        exit(1);
-    }
-
-    simdjson::ondemand::parser json_parser;
-    simdjson::padded_string data(res.response, res.size);
-    simdjson::ondemand::document doc = json_parser.iterate(data);
-    simdjson::ondemand::object obj = doc.get_object();
-
-    simdjson::ondemand::array index_array = obj["subsonic-response"]["artists"]["index"].get_array();
-
-    for (auto artist_array: index_array) {
-        simdjson::ondemand::array artist = artist_array["artist"].get_array();
-
-        for (auto artist_obj: artist) {
-            std::string_view name = artist_obj["name"].get_string();
-            std::string_view id = artist_obj["id"].get_string();
-            int64_t album_count = artist_obj["albumCount"].get_int64();
-
-            artist_node node;
-            node.artist_name = std::string(name);
-            node.artist_id = std::string(id);
-            node.album_count = album_count;
-
-            app_state.artists.push_back(node);
-            debug_log.AddLog("[INFO]: Added %s to the artist list\n", node.artist_name.c_str());
-        }
-    }
-
-    debug_log.AddLog("[INFO]: Added %lu artists\n", app_state.artists.size());
-    free(res.response);
-    curl_easy_cleanup(curl);
+    app_state.fetch.req_cv.notify_one();
 }
 
-// TODO: Make multi threaded!
-// !!! NOT ASYNC YET !!!
+// Now multi-threaded
 void fetch_artist_albums(artist_node &artist) {
-    std::string url = std::format(
+    fetch_request r;
+    r.url = std::format(
         "{}/rest/getArtist.view?id={}&u={}&p={}&c=ImMusic&v=1.16.1&f=json",
         app_state.server_base_addr, artist.artist_id, app_state.server_username, app_state.server_password);
-    network_response res = {0};
 
-    CURL *curl = curl_easy_init();
+    r.type = ARTIST_ALBUMS;
+    r.artist_id = artist.artist_id;
 
-    if (!curl) {
-        fprintf(stderr, "curl failed easy_init\n");
-        exit(1);
+    {
+        std::unique_lock lock(app_state.fetch.req_mutex);
+        app_state.fetch.req_q.push(r);
+        fprintf(stderr, "request pushed\n");
     }
-
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-
-    CURLcode result = curl_easy_perform(curl);
-
-    if (result != CURLE_OK) {
-        exit(1);
-    }
-    simdjson::ondemand::parser json_parser;
-    simdjson::padded_string data(res.response, res.size);
-    simdjson::ondemand::document doc = json_parser.iterate(data);
-    simdjson::ondemand::object obj = doc.get_object();
-
-    simdjson::ondemand::array album_array = obj["subsonic-response"]["artist"]["album"].get_array();
-
-    for (auto album: album_array) {
-        album_node a;
-        std::string_view id = album["id"].get_string();
-        std::string_view name = album["name"].get_string();
-        a.album_id = std::string(id);
-        a.album_name = std::string(name);
-        a.track_count = album["songCount"].get_int64();
-
-        artist.albums.push_back(a);
-    }
-
-    free(res.response);
-    curl_easy_cleanup(curl);
+    app_state.fetch.req_cv.notify_one();
 }
 
 
@@ -663,27 +637,37 @@ void draw_remote_tree(std::vector<artist_node> &artists) {
         ImGui::Text("Artist");
 
         if (open) {
-            if (a.albums.empty()) {
-                debug_log.AddLog("[INFO]: Fetching albums for %s\n", a.artist_name.c_str());
-                fetch_artist_albums(a);
-            }
-
-            for (auto album: a.albums) {
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::TreeNodeEx(album.album_name.c_str(),
-                                  ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet |
-                                  ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAllColumns);
-                if (ImGui::IsItemClicked()) {
-                    debug_log.AddLog("[INFO]: Selected album %s\n", album.album_name.c_str());
-                    app_state.selected_album = album.album_id;
-                    app_state.show_remote_media_view = true;
-                    app_state.show_media_view = false;
-                }
-                ImGui::TableNextColumn();
-                ImGui::Text("%d", album.track_count);
-                ImGui::TableNextColumn();
-                ImGui::Text("Album");
+            switch (a.status) {
+                case IDLE:
+                    debug_log.AddLog("[INFO]: Fetching albums for %s\n", a.artist_name.c_str());
+                    fetch_artist_albums(a);
+                    a.status = LOADING;
+                    break;
+                case LOADING:
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::Text("Loading...");
+                    break;
+                case READY:
+                    for (auto &album: a.albums) {
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        ImGui::TreeNodeEx(album.album_name.c_str(),
+                                          ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet |
+                                          ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAllColumns);
+                        if (ImGui::IsItemClicked()) {
+                            debug_log.AddLog("[INFO]: Selected album %s\n", album.album_name.c_str());
+                            app_state.selected_album = album.album_id;
+                            fprintf(stderr, "changed selected_album\n");
+                            app_state.show_remote_media_view = true;
+                            app_state.show_media_view = false;
+                        }
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%d", album.track_count);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("Album");
+                    }
+                    break;
             }
             ImGui::TreePop();
         }
@@ -770,63 +754,31 @@ void display_remote_tracks(const std::vector<track_t> &tracks) {
     }
 }
 
-// TODO: Make multi threaded!
-// !!! NOT ASYNC YET !!!
 void build_remote_media_view(std::string album_id) {
-    std::string url = std::format(
+    fetch_request r;
+
+    r.url = std::format(
         "{}/rest/getAlbum.view?id={}&u={}&p={}&c=ImMusic&v=1.16.1&f=json", app_state.server_base_addr, album_id,
         app_state.server_username, app_state.server_password);
 
-    network_response res = {0};
-    CURL *curl = curl_easy_init();
+    r.type = SONGS;
+    r.album_id = album_id;
 
-    if (!curl) {
-        fprintf(stderr, "curl failed easy_init\n");
-        exit(1);
+    {
+        std::unique_lock lock(app_state.fetch.req_mutex);
+        app_state.fetch.req_q.push(r);
+        fprintf(stderr, "request pushed\n");
     }
 
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-
-    CURLcode result = curl_easy_perform(curl);
-
-    if (result != CURLE_OK) {
-        exit(1);
-    }
-    simdjson::ondemand::parser json_parser;
-    simdjson::padded_string data(res.response, res.size);
-    simdjson::ondemand::document doc = json_parser.iterate(data);
-    simdjson::ondemand::object obj = doc.get_object();
-
-    simdjson::ondemand::array song_array = obj["subsonic-response"]["album"]["song"].get_array();
-
-    for (auto s: song_array) {
-        std::cout << s.raw_json() << "\n";
-        track_t t;
-        t.album_name = std::string(s["album"].get_string().value());
-        t.artist_name = std::string(s["artist"].get_string().value());
-        t.track_name = std::string(s["title"].get_string().value());
-
-
-        if (s["track"].error()) {
-            t.track_number = 0;
-        } else {
-            t.track_number = s["track"].get_uint64();
-        }
-
-        if (s["duration"].error()) {
-            continue;
-        }
-
-        t.duration = std::chrono::seconds(s["duration"].get_uint64().value());
-        t.song_id = std::string(s["id"].get_string().value());
-        app_state.media_view_tracks.push_back(t);
-    }
+    app_state.fetch.req_cv.notify_one();
 }
 
 void draw_remote_media_view() {
     if (app_state.cur_album != app_state.selected_album) {
+        fprintf(stderr, "album changed from %s to %s\n", 
+                app_state.cur_album.c_str(), 
+                app_state.selected_album.c_str());
+
         app_state.cur_album = app_state.selected_album;
         app_state.media_view_tracks.clear();
         build_remote_media_view(app_state.cur_album);
@@ -834,9 +786,9 @@ void draw_remote_media_view() {
     }
     ImGui::Begin("Remote Media View", &app_state.show_remote_media_view);
     ImGuiTableFlags media_table_flags =
-            ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
-            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable |
-            ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY;
+        ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
+        ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable |
+        ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY;
 
     if (ImGui::BeginTable("media_view_remote", 5, media_table_flags)) {
         ImGui::TableSetupColumn(
@@ -929,50 +881,19 @@ void check_settings_file() {
 
 // TODO: Make multi threaded!
 // !!! NOT ASYNC YET !!!
-VALIDATION_CODE validate_server_info(const std::string &addr, const std::string &username,
+void validate_server_info(const std::string &addr, const std::string &username,
                                      const std::string &password) {
-    std::string url = std::format("{}/rest/ping?u={}&p={}&c=ImMusic&v=1.16.1&f=json", addr, username, password);
+    fetch_request r;
+    r.url = std::format("{}/rest/ping?u={}&p={}&c=ImMusic&v=1.16.1&f=json", addr, username, password);
 
-    network_response res = {0};
-    CURL *curl = curl_easy_init();
+    r.type = SETTINGS;
 
-    if (!curl) {
-        fprintf(stderr, "curl failed easy_init\n");
-        return CURL_FAILURE;
+    {
+        std::unique_lock lock(app_state.fetch.req_mutex);
+        app_state.fetch.req_q.push(r);
     }
 
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-
-    CURLcode result = curl_easy_perform(curl);
-
-    if (result != CURLE_OK) {
-        fprintf(stderr, "CURLE WAS NOT OK\n");
-        return CURL_FAILURE;
-    }
-
-    simdjson::ondemand::parser json_parser;
-    simdjson::padded_string data(res.response, res.size);
-    simdjson::ondemand::document doc = json_parser.iterate(data);
-    simdjson::ondemand::object obj = doc.get_object();
-    if (obj.find_field("subsonic-response").error() == simdjson::error_code::NO_SUCH_FIELD) {
-        return NO_RESPONSE;
-    }
-
-    std::string_view status = obj["subsonic-response"]["status"].get_string();
-    if (status == "ok") {
-        return OK;
-    }
-
-    uint64_t code = obj["subsonic-response"]["error"]["code"].get_int64();
-
-    if (code == 40) {
-        return INVALID_LOGIN_CRED;
-    }
-
-    free(res.response);
-    curl_easy_cleanup(curl);
+    app_state.fetch.req_cv.notify_one();
 }
 
 void draw_settings_menu() {
@@ -992,17 +913,7 @@ void draw_settings_menu() {
 
     // We should do a sanity check if the info works with a quick test curl request!
     if (ImGui::Button("Save")) {
-        VALIDATION_CODE code = validate_server_info(std::string(urlbuf), std::string(username), std::string(password));
-
-        if (code == OK) {
-            app_state.server_base_addr = std::string(urlbuf);
-            app_state.server_username = std::string(username);
-            app_state.server_password = std::string(password);
-            app_state.show_server_settings = false;
-        } else {
-            last_error = code;
-            ImGui::OpenPopup("ERROR!");
-        }
+        validate_server_info(std::string(urlbuf), std::string(username), std::string(password));
     }
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
@@ -1106,7 +1017,7 @@ int main(int, char **) {
 
     // More window config
     SDL_GL_MakeCurrent(window, gl_context);
-    SDL_GL_SetSwapInterval(0); // This is vsync
+    SDL_GL_SetSwapInterval(1); // This is vsync
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     SDL_ShowWindow(window);
 
@@ -1159,6 +1070,7 @@ int main(int, char **) {
     glClear(GL_COLOR_BUFFER_BIT);
 
     app_state.is_running = true;
+    app_state.fetch.worker = std::thread(network_worker, std::ref(app_state.fetch));
 
     // * === MAIN LOOP ===
     while (app_state.is_running) {
@@ -1220,6 +1132,9 @@ int main(int, char **) {
         if (ImGui::IsKeyReleased(ImGuiKey_F3)) {
             app_state.show_frametime = !app_state.show_frametime;
         }
+
+        // TODO: add network check function here
+        check_network();
 
         // * This is the file browser window stuff
         if (app_state.show_file_system_window && !app_state.show_remote_browser) {
@@ -1319,6 +1234,9 @@ int main(int, char **) {
         SDL_GL_SwapWindow(window);
     }
     save_settings_to_file();
+    app_state.fetch.running = false;
+    app_state.fetch.req_cv.notify_all();
+    app_state.fetch.worker.join();
     // Shutdown and cleanup
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
