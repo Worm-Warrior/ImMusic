@@ -19,6 +19,7 @@ enum REQ_TYPE {
     ARTISTS,
     ARTIST_ALBUMS,
     SONGS,
+    SETTINGS,
 };
 
 enum VALIDATION_CODE {
@@ -27,7 +28,7 @@ enum VALIDATION_CODE {
     SUBSONIC_NOT_OK,
     CURL_FAILURE,
     INVALID_LOGIN_CRED,
-    WAITING_FOR_RESPONSE,
+    NOT_SET,
 };
 
 struct album_node {
@@ -73,7 +74,6 @@ static size_t network_callback(char *data, size_t size, size_t nmemb, void *clie
 
 // My networking garbo
 
-
 struct fetch_request {
     REQ_TYPE type;
     std::string artist_id;
@@ -83,6 +83,7 @@ struct fetch_request {
 
 struct fetch_result {
     fetch_request req;
+    VALIDATION_CODE code;
 
     std::vector<artist_node> artists;
     std::vector<album_node> albums;
@@ -109,6 +110,8 @@ void fetch_artists_albums(fetch_request req, fetch_system &net);
 void fetch_album_songs(fetch_request req, fetch_system &net);
 
 void network_worker(fetch_system &net);
+
+void test_server_settings(fetch_request req, fetch_system &net);
 
 #define IMMUSIC_CURL_RESPONSE_H
 

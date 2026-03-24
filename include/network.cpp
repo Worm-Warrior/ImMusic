@@ -27,9 +27,12 @@ void network_worker(fetch_system& net) {
             case SONGS:
                 fetch_album_songs(rq, net);
                 break;
+            case SETTINGS:
+                test_server_settings(rq, net);
+                break;
             default:
-            fprintf(stderr, "UNREACHABLE CASE IN network_worker EXPLODING\n");
-            exit(1);
+                fprintf(stderr, "UNREACHABLE CASE IN network_worker EXPLODING\n");
+                exit(1);
         }
     }
 }
@@ -209,4 +212,66 @@ void fetch_album_songs(fetch_request req, fetch_system& net) {
         std::unique_lock lock(net.res_mutex);
         net.res_q.push(std::move(f_res));
     }
+}
+
+void test_server_settings(fetch_request req, fetch_system& net) {
+    fetch_result f_res;
+    f_res.code = NOT_SET;
+    f_res.req = std::move(req);
+
+    auto push_result = [&]() {
+        std::unique_lock lock(net.res_mutex);
+        net.res_q.push(std::move(f_res));
+    };
+
+    network_response res = {0};
+    CURL *curl = curl_easy_init();
+
+    if (!curl) {
+        fprintf(stderr, "curl failed easy_init\n");
+        f_res.code = CURL_FAILURE;
+        push_result();
+        return;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
+    curl_easy_setopt(curl, CURLOPT_URL, f_res.req.url.c_str());
+
+    CURLcode result = curl_easy_perform(curl);
+
+    if (result != CURLE_OK) {
+        fprintf(stderr, "CURLE WAS NOT OK\n");
+        free(res.response);
+        curl_easy_cleanup(curl);
+        f_res.code = CURL_FAILURE;
+        push_result();
+        return;
+    }
+
+    simdjson::ondemand::parser json_parser;
+    simdjson::padded_string data(res.response, res.size);
+
+    free(res.response);
+    curl_easy_cleanup(curl);
+
+    simdjson::ondemand::document doc = json_parser.iterate(data);
+    simdjson::ondemand::object obj = doc.get_object();
+    if (obj.find_field("subsonic-response").error() == simdjson::error_code::NO_SUCH_FIELD) {
+        f_res.code = NO_RESPONSE;
+        push_result();
+        return;
+    }
+
+    std::string_view status = obj["subsonic-response"]["status"].get_string();
+    if (status == "ok") {
+        f_res.code = OK;
+    } else {
+        uint64_t code = obj["subsonic-response"]["error"]["code"].get_int64();
+
+        if (code == 40) {
+            f_res.code = INVALID_LOGIN_CRED;
+        }
+    }
+    push_result();
 }

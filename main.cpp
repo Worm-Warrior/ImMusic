@@ -86,6 +86,17 @@ void check_network() {
             else
                 fprintf(stderr, "tried to load songs from stale album!\n");
             break;
+        case SETTINGS:
+            if (f.code == VALIDATION_CODE::OK) {
+                printf("ok\n");
+            }
+            if (f.code == VALIDATION_CODE::INVALID_LOGIN_CRED) {
+                printf("invalid cred\n");
+            }
+            if (f.code == VALIDATION_CODE::NO_RESPONSE) {
+                printf("no response\n");
+            }
+            break;
     }
 }
 
@@ -870,54 +881,19 @@ void check_settings_file() {
 
 // TODO: Make multi threaded!
 // !!! NOT ASYNC YET !!!
-VALIDATION_CODE validate_server_info(const std::string &addr, const std::string &username,
+void validate_server_info(const std::string &addr, const std::string &username,
                                      const std::string &password) {
-    std::string url = std::format("{}/rest/ping?u={}&p={}&c=ImMusic&v=1.16.1&f=json", addr, username, password);
+    fetch_request r;
+    r.url = std::format("{}/rest/ping?u={}&p={}&c=ImMusic&v=1.16.1&f=json", addr, username, password);
 
-    network_response res = {0};
-    CURL *curl = curl_easy_init();
+    r.type = SETTINGS;
 
-    if (!curl) {
-        fprintf(stderr, "curl failed easy_init\n");
-        return CURL_FAILURE;
+    {
+        std::unique_lock lock(app_state.fetch.req_mutex);
+        app_state.fetch.req_q.push(r);
     }
 
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&res);
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-
-    CURLcode result = curl_easy_perform(curl);
-
-    if (result != CURLE_OK) {
-        fprintf(stderr, "CURLE WAS NOT OK\n");
-        free(res.response);
-        curl_easy_cleanup(curl);
-        return CURL_FAILURE;
-    }
-
-    simdjson::ondemand::parser json_parser;
-    simdjson::padded_string data(res.response, res.size);
-
-    free(res.response);
-    curl_easy_cleanup(curl);
-
-    simdjson::ondemand::document doc = json_parser.iterate(data);
-    simdjson::ondemand::object obj = doc.get_object();
-    if (obj.find_field("subsonic-response").error() == simdjson::error_code::NO_SUCH_FIELD) {
-        return NO_RESPONSE;
-    }
-
-    std::string_view status = obj["subsonic-response"]["status"].get_string();
-    if (status == "ok") {
-        return OK;
-    }
-
-    uint64_t code = obj["subsonic-response"]["error"]["code"].get_int64();
-
-    if (code == 40) {
-        return INVALID_LOGIN_CRED;
-    }
-    return {};
+    app_state.fetch.req_cv.notify_one();
 }
 
 void draw_settings_menu() {
@@ -937,17 +913,7 @@ void draw_settings_menu() {
 
     // We should do a sanity check if the info works with a quick test curl request!
     if (ImGui::Button("Save")) {
-        VALIDATION_CODE code = validate_server_info(std::string(urlbuf), std::string(username), std::string(password));
-
-        if (code == OK) {
-            app_state.server_base_addr = std::string(urlbuf);
-            app_state.server_username = std::string(username);
-            app_state.server_password = std::string(password);
-            app_state.show_server_settings = false;
-        } else {
-            last_error = code;
-            ImGui::OpenPopup("ERROR!");
-        }
+        validate_server_info(std::string(urlbuf), std::string(username), std::string(password));
     }
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
