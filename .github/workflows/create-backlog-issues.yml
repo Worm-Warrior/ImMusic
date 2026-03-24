@@ -74,7 +74,7 @@ jobs:
               },
               {
                 title: 'Color customization options',
-                body: `## Color Customization Options\n\nAllow users to customise the colour scheme / theme of the ImMusic interface.\n\n### Acceptance Criteria\n- [ ] Predefined colour themes (e.g., dark, light, high-contrast)\n- [ ] Option to customise accent/highlight colour\n- [ ] Theme selection persisted in the config file\n- [ ] Live preview when changing colours in the settings menu`,
+                body: `## Color Customization Options\n\nAllow users to customize the color scheme / theme of the ImMusic interface.\n\n### Acceptance Criteria\n- [ ] Predefined color themes (e.g., dark, light, high-contrast)\n- [ ] Option to customize accent/highlight color\n- [ ] Theme selection persisted in the config file\n- [ ] Live preview when changing colors in the settings menu`,
                 labels: ['UX', 'enhancement'],
               },
               {
@@ -84,13 +84,16 @@ jobs:
               },
             ];
 
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const existingTitles = new Set(existing.data.map(i => i.title));
+
             for (const issue of issues) {
-              const existing = await github.rest.issues.listForRepo({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                state: 'open',
-              });
-              const alreadyExists = existing.data.some(i => i.title === issue.title);
+              const alreadyExists = existingTitles.has(issue.title);
               if (alreadyExists) {
                 console.log(`Issue "${issue.title}" already exists, skipping.`);
                 continue;
