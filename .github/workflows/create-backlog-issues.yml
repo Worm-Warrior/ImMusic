@@ -1,0 +1,109 @@
+name: Create Backlog Issues
+
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  create-issues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create enhancement label if missing
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = [
+              { name: 'enhancement', color: 'a2eeef', description: 'New feature or request' },
+            ];
+            for (const label of labels) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name,
+                });
+                console.log(`Label "${label.name}" already exists, skipping.`);
+              } catch (e) {
+                if (e.status === 404) {
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: label.name,
+                    color: label.color,
+                    description: label.description,
+                  });
+                  console.log(`Created label "${label.name}".`);
+                } else {
+                  throw e;
+                }
+              }
+            }
+
+      - name: Create backlog issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = [
+              {
+                title: 'Search feature (global and targeted)',
+                body: `## Search Feature\n\nImplement a search capability in ImMusic covering:\n\n- **Global search**: Search across all tracks, albums, and artists in both the local library and connected Navidrome server.\n- **Targeted search**: Search within a specific context (e.g., within the current album, artist discography, or active playlist).\n\n### Acceptance Criteria\n- [ ] Search bar accessible from the main UI\n- [ ] Real-time filtering as the user types\n- [ ] Global search spans all loaded library items\n- [ ] Targeted/contextual search narrows results to the current view\n- [ ] Works for both local and remote (Navidrome) sources`,
+                labels: ['Major', 'enhancement'],
+              },
+              {
+                title: 'Shuffle play',
+                body: `## Shuffle Play\n\nAdd shuffle playback support so tracks in the current queue or album can be played in a randomised order.\n\n### Acceptance Criteria\n- [ ] Toggle button to enable/disable shuffle mode\n- [ ] Shuffled order is generated when shuffle is enabled\n- [ ] Disabling shuffle restores the original track order\n- [ ] Shuffle state is visually indicated in the player controls`,
+                labels: ['Minor', 'enhancement'],
+              },
+              {
+                title: 'Sortable column headers (asc/desc) for track listings',
+                body: `## Sortable Column Headers\n\nAllow users to sort track listings by clicking column headers. Clicking a header once should sort ascending; clicking again should sort descending.\n\n### Columns to support\n- Track number\n- Title\n- Artist\n- Album\n- Duration\n- Year / Date\n\n### Acceptance Criteria\n- [ ] Clickable column headers in the track list view\n- [ ] Visual indicator (arrow) showing current sort column and direction\n- [ ] Toggle between ascending and descending order\n- [ ] Sorting works for both local and remote track listings`,
+                labels: ['UX', 'enhancement'],
+              },
+              {
+                title: 'Albums-only view',
+                body: `## Albums-Only View\n\nProvide a dedicated view that displays only albums, making it easier to browse by album rather than individual tracks.\n\n### Acceptance Criteria\n- [ ] New view mode that shows albums as a grid or list\n- [ ] Each album entry shows cover art (if available), album name, artist, and year\n- [ ] Clicking an album opens the track listing for that album\n- [ ] Available for both local library and Navidrome remote source\n- [ ] Accessible via a navigation toggle or menu option`,
+                labels: ['Major', 'enhancement'],
+              },
+              {
+                title: 'Reimplement settings menu features',
+                body: `## Reimplement Settings Menu Features\n\nThe current settings menu is incomplete or has features that are not fully functional. Audit and reimplement the settings panel so all options work correctly.\n\n### Tasks\n- [ ] Audit existing settings menu items and identify broken or missing functionality\n- [ ] Reimplement server connection settings (host, username, password) with proper validation\n- [ ] Persist settings between sessions (e.g., via a config file)\n- [ ] Add "Test connection" button for Navidrome server settings\n- [ ] Clean up and reorganise the settings UI`,
+                labels: ['Refactor', 'enhancement'],
+              },
+              {
+                title: 'Color customization options',
+                body: `## Color Customization Options\n\nAllow users to customize the color scheme / theme of the ImMusic interface.\n\n### Acceptance Criteria\n- [ ] Predefined color themes (e.g., dark, light, high-contrast)\n- [ ] Option to customize accent/highlight color\n- [ ] Theme selection persisted in the config file\n- [ ] Live preview when changing colors in the settings menu`,
+                labels: ['UX', 'enhancement'],
+              },
+              {
+                title: 'Music visualization / animated background shader',
+                body: `## Music Visualization / Animated Background Shader\n\nMake the background of the player visually interesting by adding audio-reactive visualizations or an animated shader.\n\n### Ideas\n- Frequency spectrum / waveform visualizer rendered behind or alongside the player UI\n- GLSL shader-based animated background that reacts to beat or amplitude\n- Subtle particle effects or colour pulsing driven by the audio signal\n\n### Acceptance Criteria\n- [ ] At least one visualization mode implemented\n- [ ] Toggle to enable/disable visualization (to keep the option lightweight)\n- [ ] Does not significantly degrade rendering performance\n- [ ] Integrates with the existing OpenGL 3 / SDL3 render loop`,
+                labels: ['enhancement'],
+              },
+            ];
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const existingTitles = new Set(existing.data.map(i => i.title));
+
+            for (const issue of issues) {
+              const alreadyExists = existingTitles.has(issue.title);
+              if (alreadyExists) {
+                console.log(`Issue "${issue.title}" already exists, skipping.`);
+                continue;
+              }
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: issue.title,
+                body: issue.body,
+                labels: issue.labels,
+              });
+              console.log(`Created issue #${created.data.number}: ${issue.title}`);
+            }
