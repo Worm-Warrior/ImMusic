@@ -2,6 +2,11 @@
 #include "../external/simdjson.h"
 #include <curl/curl.h>
 #include <mutex>
+#include <cstdio>
+#include <iostream>
+#include <chrono>
+#include <string_view>
+#include <cstdint>
 
 void network_worker(fetch_system& net) {
     fprintf(stderr, "network_worker started\n");

@@ -35,7 +35,6 @@
 #include "include/network.h"
 #include <curl/curl.h>
 #include "external/simdjson.h"
-#include "include/network.h"
 
 extern "C" {
 #include <ffmpeg/libavcodec/avcodec.h>
@@ -63,7 +62,7 @@ void check_network() {
     std::unique_lock lock(app_state.fetch.res_mutex);
     if (app_state.fetch.res_q.empty()) return;
 
-    fetch_result f = app_state.fetch.res_q.front();
+    fetch_result f = std::move(app_state.fetch.res_q.front());
     app_state.fetch.res_q.pop();
     lock.unlock();
 
@@ -1070,6 +1069,7 @@ int main(int, char **) {
     glClear(GL_COLOR_BUFFER_BIT);
 
     app_state.is_running = true;
+    curl_global_init(CURL_GLOBAL_DEFAULT);
     app_state.fetch.worker = std::thread(network_worker, std::ref(app_state.fetch));
 
     // * === MAIN LOOP ===
@@ -1237,6 +1237,7 @@ int main(int, char **) {
     app_state.fetch.running = false;
     app_state.fetch.req_cv.notify_all();
     app_state.fetch.worker.join();
+    curl_global_cleanup();
     // Shutdown and cleanup
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
