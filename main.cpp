@@ -1069,6 +1069,7 @@ int main(int, char **) {
     glClear(GL_COLOR_BUFFER_BIT);
 
     app_state.is_running = true;
+    curl_global_init(CURL_GLOBAL_DEFAULT);
     app_state.fetch.worker = std::thread(network_worker, std::ref(app_state.fetch));
 
     // * === MAIN LOOP ===
@@ -1236,6 +1237,7 @@ int main(int, char **) {
     app_state.fetch.running = false;
     app_state.fetch.req_cv.notify_all();
     app_state.fetch.worker.join();
+    curl_global_cleanup();
     // Shutdown and cleanup
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
