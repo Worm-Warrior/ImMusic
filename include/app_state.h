@@ -50,6 +50,8 @@ struct app_state_t {
     bool show_media_view = false;
 
     bool show_server_settings = false;
+    bool show_error_popup = false;
+    VALIDATION_CODE last_error = OK;
 
     bool is_running = true;
     bool is_remote = false;

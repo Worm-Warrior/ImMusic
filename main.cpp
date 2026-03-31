@@ -86,16 +86,38 @@ void check_network() {
                 fprintf(stderr, "tried to load songs from stale album!\n");
             break;
         case SETTINGS:
-            if (f.code == VALIDATION_CODE::OK) {
-                printf("ok\n");
+            switch (f.code) {
+                case OK:
+                    fprintf(stderr, "ok\n");
+                    app_state.show_error_popup = false;
+                    app_state.last_error = OK;
+                    break;
+                case NO_RESPONSE:
+                    fprintf(stderr, "no response\n");
+                    app_state.show_error_popup = true;
+                    app_state.last_error = NO_RESPONSE;
+                    break;
+                case SUBSONIC_NOT_OK:
+                    fprintf(stderr, "subsonic not ok\n");
+                    app_state.show_error_popup = true;
+                    app_state.last_error = SUBSONIC_NOT_OK;
+                    break;
+                case CURL_FAILURE:
+                    fprintf(stderr, "curl failure\n");
+                    app_state.show_error_popup = true;
+                    app_state.last_error = CURL_FAILURE;
+                    break;
+                case INVALID_LOGIN_CRED:
+                    fprintf(stderr, "invalid login cred\n");
+                    app_state.show_error_popup = true;
+                    app_state.last_error = INVALID_LOGIN_CRED;
+                    break;
+                case NOT_SET:
+                    fprintf(stderr, "the validation code was not set\n");
+                    app_state.show_error_popup = true;
+                    app_state.last_error = NOT_SET;
+                    break;
             }
-            if (f.code == VALIDATION_CODE::INVALID_LOGIN_CRED) {
-                printf("invalid cred\n");
-            }
-            if (f.code == VALIDATION_CODE::NO_RESPONSE) {
-                printf("no response\n");
-            }
-            break;
     }
 }
 
@@ -893,8 +915,7 @@ void check_settings_file() {
     }
 }
 
-// TODO: Make multi threaded!
-// !!! NOT ASYNC YET !!!
+// now multi threaded
 void validate_server_info(const std::string &addr, const std::string &username,
                                      const std::string &password) {
     fetch_request r;
@@ -910,6 +931,50 @@ void validate_server_info(const std::string &addr, const std::string &username,
     app_state.fetch.req_cv.notify_one();
 }
 
+void draw_error_popup(VALIDATION_CODE err) {
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal("ERROR!", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+        std::string error_text = "";
+        switch (err) {
+            case OK:
+                error_text = "This was not an error";
+                break;
+            case CURL_FAILURE:
+                error_text = "CURL has failed, your URL is most likely invalid.";
+                break;
+            case NO_RESPONSE:
+                error_text = "There was no subsonic response, your URL most likely not a navidrome server.";
+                break;
+            case SUBSONIC_NOT_OK:
+                error_text = "Subsonic returned a status failed on your request.";
+                break;
+            case INVALID_LOGIN_CRED:
+                error_text = "Your username or password was invalid for the server provided.";
+                break;
+            case NOT_SET:
+                error_text = "The error code was not set";
+                break;
+            default:
+                error_text = "Default case was reached";
+                break;
+        }
+
+        ImGui::Text("%s", error_text.c_str());
+        ImGui::SetItemDefaultFocus();
+        ImGui::Separator();
+
+        if (ImGui::Button("OK", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup(); 
+            app_state.show_error_popup = false;
+            app_state.last_error = OK;
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
 void draw_settings_menu() {
     const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20), ImGuiCond_FirstUseEver);
@@ -919,7 +984,6 @@ void draw_settings_menu() {
     static char urlbuf[256] = "";
     static char username[32] = "";
     static char password[32] = "";
-    static VALIDATION_CODE last_error = OK;
 
 
     ImGui::TextWrapped("CAUTION:\nAll of this info is saved in plain text in settings.txt!");
@@ -933,32 +997,6 @@ void draw_settings_menu() {
         validate_server_info(std::string(urlbuf), std::string(username), std::string(password));
     }
 
-    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    if (ImGui::BeginPopupModal("ERROR!", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-        std::string error_text = "";
-        switch (last_error) {
-            case CURL_FAILURE:
-                error_text = "CURL has failed, your URL is most likely invalid.";
-                break;
-            case NO_RESPONSE:
-                error_text = "There was no subsonic response, your URL most likely not a navidrome server.";
-                break;
-            case SUBSONIC_NOT_OK:
-                error_text = "Subsonic returned a status failed on your request.";
-                break;
-            case INVALID_LOGIN_CRED:
-                error_text = "Your username or password was invalid for the server provided.";
-                break;
-            default: ;
-        }
-
-        ImGui::Text("%s", error_text.c_str());
-        ImGui::SetItemDefaultFocus();
-        if (ImGui::Button("OK", ImVec2(120, 0))) { ImGui::CloseCurrentPopup(); }
-
-        ImGui::EndPopup();
-    }
     ImGui::SameLine();
 
     if (ImGui::Button("Cancel")) {
@@ -1153,6 +1191,12 @@ int main(int, char **) {
 
         // TODO: add network check function here
         check_network();
+
+        if (app_state.show_error_popup && app_state.last_error != OK) {
+            ImGui::OpenPopup("ERROR!");
+        }
+
+        draw_error_popup(app_state.last_error);
 
         // * This is the file browser window stuff
         if (app_state.show_file_system_window && !app_state.show_remote_browser) {
