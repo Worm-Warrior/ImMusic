@@ -965,6 +965,15 @@ void draw_error_popup(VALIDATION_CODE err) {
         ImGui::SetItemDefaultFocus();
         ImGui::Separator();
 
+        ImGuiStyle& style = ImGui::GetStyle();
+
+        float size = ImGui::CalcTextSize("OK").x + style.FramePadding.x * 2.0f;
+        float avail = ImGui::GetContentRegionAvail().x;
+
+        float off = (avail - size - 120) * 0.5f;
+        if (off > 0.0f)
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + off);
+
         if (ImGui::Button("OK", ImVec2(120, 0))) {
             ImGui::CloseCurrentPopup(); 
             app_state.show_error_popup = false;
