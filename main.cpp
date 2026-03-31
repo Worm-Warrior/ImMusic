@@ -965,6 +965,8 @@ void draw_error_popup(VALIDATION_CODE err) {
         ImGui::SetItemDefaultFocus();
         ImGui::Separator();
 
+        // NOTE: https://github.com/ocornut/imgui/discussions/3862
+        // To set the button to be centered (the - 120 is the width of the button)
         ImGuiStyle& style = ImGui::GetStyle();
 
         float size = ImGui::CalcTextSize("OK").x + style.FramePadding.x * 2.0f;
