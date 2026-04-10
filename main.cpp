@@ -1200,7 +1200,6 @@ int main(int, char **) {
             app_state.show_frametime = !app_state.show_frametime;
         }
 
-        // TODO: add network check function here
         check_network();
 
         if (app_state.show_error_popup && app_state.last_error != OK) {
