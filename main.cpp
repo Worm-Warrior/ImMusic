@@ -436,9 +436,10 @@ void display_tracks(const std::vector<track_t> &tracks) {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
 
+            // Handle some keyboard input as well.
             if ((ImGui::Selectable(("##" + t.path.string()).c_str(), is_selected,
                                    ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) &&
-                ImGui::IsMouseDoubleClicked(0)) {
+                (ImGui::IsMouseDoubleClicked(0) || ImGui::IsKeyPressed(ImGuiKey_Space) || ImGui::IsKeyPressed(ImGuiKey_Enter))) {
                 app_state.playing_tracks = app_state.media_view_tracks;
                 // Update the state so we have the right index(es).
                 app_state.cur_selected_track = t;
@@ -748,9 +749,10 @@ void display_remote_tracks(const std::vector<track_t> &tracks) {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
 
+            // Handle some keyboard input as well.
             if ((ImGui::Selectable(("##" + t.song_id).c_str(), is_selected,
-                                   ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) &&
-                ImGui::IsMouseDoubleClicked(0)) {
+                            ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) &&
+                    (ImGui::IsMouseDoubleClicked(0) || ImGui::IsKeyPressed(ImGuiKey_Space) || ImGui::IsKeyPressed(ImGuiKey_Enter))) {
                 app_state.playing_tracks = app_state.media_view_tracks;
                 // Update the state so we have the right index(es).
                 app_state.cur_selected_track = t;
