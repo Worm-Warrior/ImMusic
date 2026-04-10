@@ -11,6 +11,7 @@ find_package(PkgConfig REQUIRED)
 find_package(SDL3_image REQUIRED)
 pkg_check_modules(VLC REQUIRED libvlc)
 pkg_check_modules(TAGLIB REQUIRED taglib)
+pkg_check_modules(GL REQUIRED gl)
 
 pkg_check_modules(FFMPEG REQUIRED
         libavformat

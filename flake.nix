@@ -22,6 +22,7 @@
           taglib_1
           curl
           libvlc
+          libGL
         ];
 
         # Optional: set any env vars your project needs

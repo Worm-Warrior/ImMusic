@@ -37,7 +37,7 @@
 #include "external/simdjson.h"
 
 extern "C" {
-#include <ffmpeg/libavcodec/avcodec.h>
+#include <libavcodec/avcodec.h>
 }
 
 static constexpr std::string_view valid_formats[] = {
