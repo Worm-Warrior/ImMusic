@@ -261,7 +261,16 @@ void test_server_settings(fetch_request req, fetch_system& net) {
     curl_easy_cleanup(curl);
 
     simdjson::ondemand::document doc = json_parser.iterate(data);
+    if (doc.get_object().error() == simdjson::error_code::INCORRECT_TYPE) {
+        f_res.code = NOT_JSON;
+        push_result();
+        return;
+    }
+
+    // WARNING: this *will* crash if you give it something that is not a json object.
+    // stuff like arrays will crash and it is very ugly to check, not going to worry about it right now.
     simdjson::ondemand::object obj = doc.get_object();
+
     if (obj.find_field("subsonic-response").error() == simdjson::error_code::NO_SUCH_FIELD) {
         f_res.code = NO_RESPONSE;
         push_result();

@@ -112,6 +112,11 @@ void check_network() {
                     app_state.show_error_popup = true;
                     app_state.last_error = INVALID_LOGIN_CRED;
                     break;
+                case NOT_JSON:
+                    fprintf(stderr, "the document was not json\n");
+                    app_state.show_error_popup = true;
+                    app_state.last_error = NOT_JSON;
+                break;
                 case NOT_SET:
                     fprintf(stderr, "the validation code was not set\n");
                     app_state.show_error_popup = true;
@@ -954,10 +959,13 @@ void draw_error_popup(VALIDATION_CODE err) {
                 error_text = "Your username or password was invalid for the server provided.";
                 break;
             case NOT_SET:
-                error_text = "The error code was not set";
+                error_text = "The error code was not set, this is probably a bug or oversight.";
                 break;
+            case NOT_JSON:
+                error_text = "The document fetched from URL was not json, the URL is most likely wrong.";
+            break;
             default:
-                error_text = "Default case was reached";
+                error_text = "Default case was reached, you should never see this.";
                 break;
         }
 
