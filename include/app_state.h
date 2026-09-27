@@ -37,7 +37,8 @@ struct app_state_t {
 
     std::string cur_artist;
 
-    float cur_track_volume = 0.5;
+    int64_t cur_seconds;
+    float volume = 0.5;
 
     int seek_time;
     int seek_max;

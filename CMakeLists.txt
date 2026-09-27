@@ -40,6 +40,7 @@ add_executable(ImMusic
         include/network.h
         include/app_settings.h
         include/network.cpp
+        include/debug_log.cpp
 )
 
 target_include_directories(ImMusic PRIVATE

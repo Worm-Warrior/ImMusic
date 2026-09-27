@@ -6,13 +6,11 @@
 #include <SDL3/SDL_oldnames.h>
 
 #include "app_state.h"
+#include "debug_log.h"
 
 
 // TODO: add checks for if ALL things are initialized, currently missing some and assuming they will work.
 void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
-    if (ctx.should_stop) {
-        printf("should_stop\n");
-    }
     while (!ctx.should_stop) {
         if (ctx.is_paused) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -21,6 +19,8 @@ void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
 
         if (ctx.seek_req.load(std::memory_order_acquire)) {
             std::lock_guard lock(ctx.mutex);
+
+            //ctx.decode_EOF = false;
 
             int seconds = ctx.seek_seconds.load(std::memory_order_relaxed);
             AVStream *st = ctx.format_context->streams[ctx.audio_stream_index];
@@ -63,9 +63,12 @@ void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
             AVPacket *packet = av_packet_alloc();
             AVFrame *frame = av_frame_alloc();
 
-            // Read ONE packet
-            if (av_read_frame(ctx.format_context, packet) < 0) {
-                //ctx.should_stop = true;
+            // Read ONE packet and see if it is an error.
+            int err = av_read_frame(ctx.format_context, packet);
+
+            if (err == AVERROR_EOF) {
+                // fprintf(stderr, "EOF error encountered from av_read_frame\n");
+                ctx.decode_EOF.exchange(true);
                 av_packet_free(&packet);
                 av_frame_free(&frame);
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -101,7 +104,8 @@ void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
                         SDL_PutAudioStreamData(ctx.audio_stream, out_buffer[0], audio_size);
                         ctx.played_samples += frame->nb_samples;
                     }
-                    //printf("decoding while loop: %ld\n", frame->best_effort_timestamp);
+                    double seconds = frame->best_effort_timestamp * av_q2d(ctx.codec_context->time_base);
+                    //printf("decoding while loop: %lf\n", seconds);
                     //printf("%lu\n", ctx.played_samples.load());
                     av_free(out_buffer[0]);
                 }
@@ -188,9 +192,12 @@ bool load_file(audio_context_t &ctx, const std::string &filepath) {
     av_opt_set_sample_fmt(ctx.swr_context, "in_sample_fmt", ctx.codec_context->sample_fmt, 0);
     av_opt_set_sample_fmt(ctx.swr_context, "out_sample_fmt", AV_SAMPLE_FMT_FLT, 0);
 
+    //printf("%ld\n", ctx.format_context->duration / AV_TIME_BASE);
+
     swr_init(ctx.swr_context);
 
     ctx.should_stop = false;
+    ctx.decode_EOF = false;
     ctx.played_samples = 0;
     return true;
 }

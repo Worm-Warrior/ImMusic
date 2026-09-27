@@ -122,4 +122,6 @@ struct app_log {
         ImGui::End();
     }
 };
+// we will use this for the whole app for showing debug text in the log.
+extern app_log debug_log;
 #endif //IMMUSIC_DEBUG_LOG_H

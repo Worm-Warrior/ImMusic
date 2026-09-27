@@ -47,8 +47,6 @@ static constexpr std::string_view valid_formats[] = {
 
 // * This will be our whole app state in one big FAT GLOBAL struct.
 app_state_t app_state;
-// * This is also a global for logging anything in this file!
-static app_log debug_log;
 // * Thread that we use to decode.
 static std::thread decoder_thread;
 // * Audio context;
@@ -116,7 +114,7 @@ void check_network() {
                     fprintf(stderr, "the document was not json\n");
                     app_state.show_error_popup = true;
                     app_state.last_error = NOT_JSON;
-                break;
+                    break;
                 case NOT_SET:
                     fprintf(stderr, "the validation code was not set\n");
                     app_state.show_error_popup = true;
@@ -313,7 +311,7 @@ void load_and_play_file(const track_t &track) {
     has_audio_init = true;
 
     SDL_AudioDeviceID device = SDL_GetAudioStreamDevice(audio_context.audio_stream);
-    SDL_SetAudioDeviceGain(device, 0.5f);
+    SDL_SetAudioDeviceGain(device, app_state.volume);
 
     audio_context.should_stop = false;
     audio_context.is_paused = false;
@@ -325,7 +323,8 @@ void load_and_play_file(const track_t &track) {
 
 void draw_file_system_window() {
     const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 20, main_viewport->WorkPos.y + 20), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 20, main_viewport->WorkPos.y + 20),
+                            ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(400, 600), ImGuiCond_FirstUseEver);
     ImGui::Begin("Local File System", &app_state.show_file_system_window);
     static ImGuiTableFlags table_flags =
@@ -487,7 +486,8 @@ void draw_media_view(std::filesystem::path path) {
     }
 
     const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20),
+                            ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
     ImGui::Begin("Media View", &app_state.show_media_view);
     ImGuiTableFlags media_table_flags =
@@ -517,7 +517,8 @@ void draw_media_view(std::filesystem::path path) {
 
 void draw_player_controls() {
     const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 430), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 430),
+                            ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(600, 200), ImGuiCond_FirstUseEver);
     ImGui::Begin("Player Control");
     if (!app_state.playing_tracks.empty()) {
@@ -594,13 +595,13 @@ void draw_player_controls() {
         audio_context.seek_seconds.store(app_state.seek_time, std::memory_order_relaxed);
         audio_context.seek_req.store(true, std::memory_order_release);
     }
-    if (ImGui::SliderFloat("Volume", &app_state.cur_track_volume, 0, 1, "%.2f")) {
-        debug_log.AddLog("Volume: %f\n", app_state.cur_track_volume);
+    if (ImGui::SliderFloat("Volume", &app_state.volume, 0, 1, "%.2f")) {
+        debug_log.AddLog("Volume: %f\n", app_state.volume);
     }
     ImGui::End();
     // TODO: make this update only if the volume has changed.
     SDL_SetAudioDeviceGain(SDL_GetAudioStreamDevice(audio_context.audio_stream),
-                           app_state.cur_track_volume);
+                           app_state.volume);
 }
 
 
@@ -718,7 +719,8 @@ void draw_remote_browser() {
     }
 
     const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 20, main_viewport->WorkPos.y + 20), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 20, main_viewport->WorkPos.y + 20),
+                            ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(400, 600), ImGuiCond_FirstUseEver);
     ImGui::Begin("Remote Browser", &app_state.show_remote_browser);
 
@@ -813,8 +815,8 @@ void build_remote_media_view(std::string album_id) {
 
 void draw_remote_media_view() {
     if (app_state.cur_album != app_state.selected_album) {
-        fprintf(stderr, "album changed from %s to %s\n", 
-                app_state.cur_album.c_str(), 
+        fprintf(stderr, "album changed from %s to %s\n",
+                app_state.cur_album.c_str(),
                 app_state.selected_album.c_str());
 
         app_state.cur_album = app_state.selected_album;
@@ -823,13 +825,14 @@ void draw_remote_media_view() {
         debug_log.AddLog("[INFO]: Rebuilding remote media view\n");
     }
     const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20),
+                            ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
     ImGui::Begin("Remote Media View", &app_state.show_remote_media_view);
     ImGuiTableFlags media_table_flags =
-        ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
-        ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable |
-        ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY;
+            ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable |
+            ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY;
 
     if (ImGui::BeginTable("media_view_remote", 5, media_table_flags)) {
         ImGui::TableSetupColumn(
@@ -922,7 +925,7 @@ void check_settings_file() {
 
 // now multi threaded
 void validate_server_info(const std::string &addr, const std::string &username,
-                                     const std::string &password) {
+                          const std::string &password) {
     fetch_request r;
     r.url = std::format("{}/rest/ping?u={}&p={}&c=ImMusic&v=1.16.1&f=json", addr, username, password);
 
@@ -963,7 +966,7 @@ void draw_error_popup(VALIDATION_CODE err) {
                 break;
             case NOT_JSON:
                 error_text = "The document fetched from URL was not json, the URL is most likely wrong.";
-            break;
+                break;
             default:
                 error_text = "Default case was reached, you should never see this.";
                 break;
@@ -975,7 +978,7 @@ void draw_error_popup(VALIDATION_CODE err) {
 
         // NOTE: https://github.com/ocornut/imgui/discussions/3862
         // To set the button to be centered (the - 120 is the width of the button)
-        ImGuiStyle& style = ImGui::GetStyle();
+        ImGuiStyle &style = ImGui::GetStyle();
 
         float size = ImGui::CalcTextSize("OK").x + style.FramePadding.x * 2.0f;
         float avail = ImGui::GetContentRegionAvail().x;
@@ -985,7 +988,7 @@ void draw_error_popup(VALIDATION_CODE err) {
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + off);
 
         if (ImGui::Button("OK", ImVec2(120, 0))) {
-            ImGui::CloseCurrentPopup(); 
+            ImGui::CloseCurrentPopup();
             app_state.show_error_popup = false;
             app_state.last_error = OK;
         }
@@ -996,7 +999,8 @@ void draw_error_popup(VALIDATION_CODE err) {
 
 void draw_settings_menu() {
     const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20),
+                            ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(500, 300), ImGuiCond_FirstUseEver);
     ImGui::Begin("Server Settings", &app_state.show_server_settings);
 
@@ -1276,6 +1280,21 @@ int main(int, char **) {
         // TODO: Refactor out into function?
         // Right now this is what keeps track of the current playback time.
         Sint64 bytes = SDL_GetAudioStreamQueued(audio_context.audio_stream);
+
+        if (audio_context.decode_EOF && bytes == 0) {
+            if (app_state.cur_track_index + 1 < app_state.playing_tracks.size()) {
+                app_state.cur_track_index++;
+                app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
+                load_and_play_file(app_state.cur_selected_track);
+                debug_log.AddLog("[INFO]: Autoplaying %s", app_state.cur_selected_track.track_name.c_str());
+            } else if (app_state.should_repeat_autoplay) {
+                app_state.cur_track_index = 0;
+                app_state.cur_selected_track = app_state.playing_tracks[0];
+                load_and_play_file(app_state.cur_selected_track);
+                debug_log.AddLog("[INFO]: Autoplaying+Looping %s", app_state.cur_selected_track.track_name.c_str());
+            }
+        }
+
         if (!audio_context.should_stop && bytes >= 0 && !app_state.just_seeked.exchange(false)) {
             int64_t qd_samples = bytes / audio_context.bytes_per_frame;
 
@@ -1288,26 +1307,12 @@ int main(int, char **) {
                 fprintf(stderr, "PLAYED WAS 0\n");
             }
 
-            int64_t cur_seconds =
+            app_state.cur_seconds =
                     played / audio_context.codec_context->sample_rate;
             if (!app_state.seek_queued && !app_state.is_seeking) {
-                app_state.seek_time = cur_seconds;
+                app_state.seek_time = app_state.cur_seconds;
             } else {
                 app_state.seek_queued = false;
-            }
-
-            if (cur_seconds >= app_state.cur_selected_track.duration.count() && (
-                    app_state.cur_track_index + 1 < app_state.playing_tracks.size())) {
-                app_state.cur_track_index++;
-                app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
-                load_and_play_file(app_state.cur_selected_track);
-                debug_log.AddLog("[INFO]: Autoplaying %s", app_state.cur_selected_track.track_name.c_str());
-            } else if (cur_seconds >= app_state.cur_selected_track.duration.count() && app_state.
-                       should_repeat_autoplay) {
-                app_state.cur_track_index = 0;
-                app_state.cur_selected_track = app_state.playing_tracks[0];
-                load_and_play_file(app_state.cur_selected_track);
-                debug_log.AddLog("[INFO]: Autoplaying+Looping %s", app_state.cur_selected_track.track_name.c_str());
             }
         }
 

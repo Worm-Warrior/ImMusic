@@ -33,6 +33,7 @@ struct audio_context_t {
     std::atomic<uint64_t> played_samples;
 
     std::atomic<bool> seek_req{false};
+    std::atomic<bool> decode_EOF{false};
     std::atomic<int64_t> seek_seconds{0};
     std::mutex mutex;
 
