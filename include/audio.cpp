@@ -22,11 +22,11 @@ void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
 
             //ctx.decode_EOF = false;
 
-            int seconds = ctx.seek_seconds.load(std::memory_order_relaxed);
-            AVStream *st = ctx.format_context->streams[ctx.audio_stream_index];
+            const int64_t seconds = ctx.seek_seconds.load(std::memory_order_relaxed);
+            const AVStream *st = ctx.format_context->streams[ctx.audio_stream_index];
 
             int64_t ts = av_rescale_q(
-                (int64_t) seconds * AV_TIME_BASE,
+                static_cast<int64_t>(seconds) * AV_TIME_BASE,
                 AV_TIME_BASE_Q,
                 st->time_base
             );
@@ -35,9 +35,9 @@ void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
                               ctx.audio_stream_index,
                               ts,
                               AVSEEK_FLAG_BACKWARD) >= 0) {
-                avcodec_flush_buffers(ctx.codec_context);
-                //SDL_FlushAudioStream(ctx.audio_stream);
                 SDL_ClearAudioStream(ctx.audio_stream);
+                avcodec_flush_buffers(ctx.codec_context);
+                //SDL_FlushAudioStream(ctx.audio_stream); // this is used to signal end of input.
                 swr_init(ctx.swr_context);
 
                 ctx.played_samples.store(
@@ -64,9 +64,7 @@ void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
             AVFrame *frame = av_frame_alloc();
 
             // Read ONE packet and see if it is an error.
-            int err = av_read_frame(ctx.format_context, packet);
-
-            if (err == AVERROR_EOF) {
+            if (const int err = av_read_frame(ctx.format_context, packet); err == AVERROR_EOF) {
                 // fprintf(stderr, "EOF error encountered from av_read_frame\n");
                 ctx.decode_EOF.exchange(true);
                 av_packet_free(&packet);

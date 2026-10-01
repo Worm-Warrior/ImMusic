@@ -594,6 +594,7 @@ void draw_player_controls() {
         app_state.just_seeked.exchange(true);
         audio_context.seek_seconds.store(app_state.seek_time, std::memory_order_relaxed);
         audio_context.seek_req.store(true, std::memory_order_release);
+        audio_context.decode_EOF.store(false, std::memory_order_release);
     }
     if (ImGui::SliderFloat("Volume", &app_state.volume, 0, 1, "%.2f")) {
         debug_log.AddLog("Volume: %f\n", app_state.volume);
@@ -1276,25 +1277,11 @@ int main(int, char **) {
         // This is where we render all of our draw calls we generated above with the widgets
         ImGui::Render();
 
+        Sint64 bytes = SDL_GetAudioStreamQueued(audio_context.audio_stream);
+        
         // * === PROGRESS BAR SYNC ===
         // TODO: Refactor out into function?
         // Right now this is what keeps track of the current playback time.
-        Sint64 bytes = SDL_GetAudioStreamQueued(audio_context.audio_stream);
-
-        if (audio_context.decode_EOF && bytes == 0) {
-            if (app_state.cur_track_index + 1 < app_state.playing_tracks.size()) {
-                app_state.cur_track_index++;
-                app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
-                load_and_play_file(app_state.cur_selected_track);
-                debug_log.AddLog("[INFO]: Autoplaying %s", app_state.cur_selected_track.track_name.c_str());
-            } else if (app_state.should_repeat_autoplay) {
-                app_state.cur_track_index = 0;
-                app_state.cur_selected_track = app_state.playing_tracks[0];
-                load_and_play_file(app_state.cur_selected_track);
-                debug_log.AddLog("[INFO]: Autoplaying+Looping %s", app_state.cur_selected_track.track_name.c_str());
-            }
-        }
-
         if (!audio_context.should_stop && bytes >= 0 && !app_state.just_seeked.exchange(false)) {
             int64_t qd_samples = bytes / audio_context.bytes_per_frame;
 
@@ -1313,6 +1300,21 @@ int main(int, char **) {
                 app_state.seek_time = app_state.cur_seconds;
             } else {
                 app_state.seek_queued = false;
+            }
+        }
+
+        // * === END OF PLAYBACK ===
+        if (audio_context.decode_EOF && bytes == 0) {
+            if (app_state.cur_track_index + 1 < app_state.playing_tracks.size()) {
+                app_state.cur_track_index++;
+                app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
+                load_and_play_file(app_state.cur_selected_track);
+                debug_log.AddLog("[INFO]: Autoplaying %s", app_state.cur_selected_track.track_name.c_str());
+            } else if (app_state.should_repeat_autoplay) {
+                app_state.cur_track_index = 0;
+                app_state.cur_selected_track = app_state.playing_tracks[0];
+                load_and_play_file(app_state.cur_selected_track);
+                debug_log.AddLog("[INFO]: Autoplaying+Looping %s", app_state.cur_selected_track.track_name.c_str());
             }
         }
 
