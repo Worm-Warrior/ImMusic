@@ -31,6 +31,9 @@ void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
                 st->time_base
             );
 
+            //TODO: If the seeking frame is more than the max it returns an error
+            // We want it to just to truncate to the end?
+            // Maybe fix the duration on the track info so it is matching, but that would require calling out to ffmpeg in main I think.
             if (av_seek_frame(ctx.format_context,
                               ctx.audio_stream_index,
                               ts,
