@@ -1,5 +1,5 @@
 //
-// ImGui theme implementation. See theme.h for the intent behind the palette.
+// ImGui theme implementation. See theme.h for the palette and scaling intent.
 //
 
 #include "theme.h"
@@ -9,19 +9,28 @@
 
 namespace theme {
     namespace {
-        constexpr float body_font_size = 14.0f;
+        float current_scale = kUiScale;
+
+        ImVec4 with_alpha(const ImVec4 &color, float alpha) {
+            return ImVec4(color.x, color.y, color.z, alpha);
+        }
     }
 
     void apply(float dpi_scale) {
-        ImGuiStyle& style = ImGui::GetStyle();
+        ImGuiStyle &style = ImGui::GetStyle();
+
+        // Total scale for explicit sizes (window/column widths etc.). Style
+        // metrics are scaled below; fonts use the ImGui scale factors.
+        current_scale = dpi_scale * kUiScale;
 
         // Start from the stock metrics so repeated calls (e.g. hot reload /
         // theme previews) do not compound the scaling.
         style = ImGuiStyle();
 
         // --- Metrics -----------------------------------------------------
-        // Tight, but not cramped: enough padding to separate rows without
-        // wasting vertical space in long track lists.
+        // Authored in logical pixels at a 14px base font and scaled by
+        // current_scale. Tight, but not cramped: enough padding to separate
+        // rows without wasting vertical space in long track lists.
         style.WindowPadding = ImVec2(8.0f, 6.0f);
         style.WindowRounding = 0.0f;
         style.WindowBorderSize = 1.0f;
@@ -101,9 +110,11 @@ namespace theme {
         style.Colors[ImGuiCol_ButtonHovered] = color::hover;
         style.Colors[ImGuiCol_ButtonActive] = color::active;
 
-        style.Colors[ImGuiCol_Header] = color::selection;
-        style.Colors[ImGuiCol_HeaderHovered] = color::selection_hovered;
-        style.Colors[ImGuiCol_HeaderActive] = color::selection_active;
+        // Selection is the accent color at low alpha so changing the accent
+        // keeps every selection tint in sync.
+        style.Colors[ImGuiCol_Header] = with_alpha(color::accent, 0.18f);
+        style.Colors[ImGuiCol_HeaderHovered] = with_alpha(color::accent, 0.26f);
+        style.Colors[ImGuiCol_HeaderActive] = with_alpha(color::accent, 0.34f);
 
         style.Colors[ImGuiCol_Separator] = color::border;
         style.Colors[ImGuiCol_SeparatorHovered] = color::accent;
@@ -122,7 +133,7 @@ namespace theme {
         style.Colors[ImGuiCol_TabDimmedSelected] = color::panel;
         style.Colors[ImGuiCol_TabDimmedSelectedOverline] = color::border_strong;
 
-        style.Colors[ImGuiCol_DockingPreview] = color::selection_active;
+        style.Colors[ImGuiCol_DockingPreview] = with_alpha(color::accent, 0.34f);
         style.Colors[ImGuiCol_DockingEmptyBg] = color::transparent;
 
         style.Colors[ImGuiCol_PlotLines] = color::accent;
@@ -137,26 +148,28 @@ namespace theme {
         style.Colors[ImGuiCol_TableRowBgAlt] = color::row_alt;
 
         style.Colors[ImGuiCol_TextLink] = color::accent;
-        style.Colors[ImGuiCol_TextSelectedBg] = color::selection_active;
+        style.Colors[ImGuiCol_TextSelectedBg] = with_alpha(color::accent, 0.34f);
         style.Colors[ImGuiCol_TreeLines] = color::border_strong;
 
         style.Colors[ImGuiCol_DragDropTarget] = color::accent;
-        style.Colors[ImGuiCol_DragDropTargetBg] = color::selection;
+        style.Colors[ImGuiCol_DragDropTargetBg] = with_alpha(color::accent, 0.18f);
         style.Colors[ImGuiCol_UnsavedMarker] = color::accent;
         style.Colors[ImGuiCol_NavCursor] = color::accent;
 
         style.Colors[ImGuiCol_NavWindowingHighlight] = color::text;
-        style.Colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.55f);
-        style.Colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.65f);
+        style.Colors[ImGuiCol_NavWindowingDimBg] = color::overlay;
+        style.Colors[ImGuiCol_ModalWindowDimBg] = color::overlay_strong;
 
-        // Scale metrics (not fonts) for high-DPI displays.
-        style.ScaleAllSizes(dpi_scale);
+        // Scale metrics for the UI scale + high-DPI displays. Fonts use the
+        // separate ImGui scale factors so they stay crisp.
+        style.ScaleAllSizes(current_scale);
+        style.FontSizeBase = base_font_size;
+        style.FontScaleMain = kUiScale;
         style.FontScaleDpi = dpi_scale;
-        style.FontSizeBase = body_font_size;
     }
 
     void load_fonts() {
-        ImGuiIO& io = ImGui::GetIO();
+        ImGuiIO &io = ImGui::GetIO();
 
         // M PLUS 1 Code keeps track metadata and durations aligned, and it
         // includes Japanese kana/kanji. Build a range that also covers common
@@ -175,8 +188,9 @@ namespace theme {
         cfg.OversampleH = 2;
         cfg.OversampleV = 1;
 
-        ImFont* body = io.Fonts->AddFontFromFileTTF(
-            "../res/MPLUS1Code-Regular.ttf", body_font_size, &cfg, glyph_ranges.Data);
+        // base_font_size is in logical pixels; FontScaleMain applies kUiScale.
+        ImFont *body = io.Fonts->AddFontFromFileTTF(
+            "../res/MPLUS1Code-Regular.ttf", base_font_size, &cfg, glyph_ranges.Data);
 
         if (body) {
             io.FontDefault = body;
@@ -185,21 +199,29 @@ namespace theme {
         }
     }
 
-    void text_muted(const char* fmt, ...) {
+    float scale() {
+        return current_scale;
+    }
+
+    float px(float logical_px) {
+        return logical_px * current_scale;
+    }
+
+    void text_muted(const char *fmt, ...) {
         va_list args;
         va_start(args, fmt);
         ImGui::TextColoredV(color::muted, fmt, args);
         va_end(args);
     }
 
-    void text_dim(const char* fmt, ...) {
+    void text_dim(const char *fmt, ...) {
         va_list args;
         va_start(args, fmt);
         ImGui::TextColoredV(color::disabled, fmt, args);
         va_end(args);
     }
 
-    void text_right_aligned(const ImVec4& color, const char* text) {
+    void text_right_aligned(const ImVec4 &color, const char *text) {
         const float text_width = ImGui::CalcTextSize(text).x;
         const float available = ImGui::GetContentRegionAvail().x;
         if (text_width < available) {
@@ -208,7 +230,7 @@ namespace theme {
         ImGui::TextColored(color, "%s", text);
     }
 
-    void format_time(int total_seconds, char* out, size_t out_size) {
+    void format_time(int total_seconds, char *out, size_t out_size) {
         if (!out || out_size == 0) return;
         if (total_seconds < 0) total_seconds = 0;
 

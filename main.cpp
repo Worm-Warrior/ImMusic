@@ -125,6 +125,55 @@ void check_network() {
     }
 }
 
+// * === DEFAULT WINDOW LAYOUT ===
+// Window sizes below are authored for the 1x logical layout and passed through
+// theme::px() so they grow with the UI scale. They are also clamped to the main
+// viewport so a fresh layout never opens partially off-screen.
+
+ImVec2 default_window_size(float width, float height) {
+    const ImGuiViewport *vp = ImGui::GetMainViewport();
+    const float margin = theme::px(20.0f);
+    return ImVec2(ImMin(theme::px(width), vp->WorkSize.x - margin * 2.0f),
+                  ImMin(theme::px(height), vp->WorkSize.y - margin * 2.0f));
+}
+
+ImVec2 default_window_pos(float x, float y, const ImVec2 &size) {
+    const ImGuiViewport *vp = ImGui::GetMainViewport();
+    const float margin = theme::px(20.0f);
+    return ImVec2(ImMin(vp->WorkPos.x + theme::px(x), vp->WorkPos.x + vp->WorkSize.x - size.x - margin),
+                  ImMin(vp->WorkPos.y + theme::px(y), vp->WorkPos.y + vp->WorkSize.y - size.y - margin));
+}
+
+// The media/player column shares its width and vertical split. Keeping this in
+// one place means the two windows line up even on small or very tall viewports.
+struct tracks_layout_t {
+    ImVec2 media_pos;
+    ImVec2 media_size;
+    ImVec2 player_pos;
+    ImVec2 player_size;
+};
+
+tracks_layout_t default_tracks_layout() {
+    const ImGuiViewport *vp = ImGui::GetMainViewport();
+    const float margin = theme::px(20.0f);
+    const float gap = theme::px(10.0f);
+    const float left = theme::px(430.0f);
+    const float width = ImMax(theme::px(320.0f), vp->WorkSize.x - left - margin);
+    const float player_height = ImMin(theme::px(200.0f), vp->WorkSize.y * 0.30f);
+    const float media_height = ImMax(theme::px(120.0f),
+                                     ImMin(theme::px(400.0f),
+                                           vp->WorkSize.y - margin * 2.0f - player_height - gap));
+
+    tracks_layout_t layout;
+    layout.media_pos = ImVec2(vp->WorkPos.x + left, vp->WorkPos.y + margin);
+    layout.media_size = ImVec2(width, media_height);
+    layout.player_pos = ImVec2(layout.media_pos.x, layout.media_pos.y + media_height + gap);
+    layout.player_pos.y = ImMin(layout.player_pos.y,
+                                vp->WorkPos.y + vp->WorkSize.y - player_height - margin);
+    layout.player_size = ImVec2(width, player_height);
+    return layout;
+}
+
 // * === MENU BAR ===
 // The right side of the menu bar is a permanent status line. It keeps the
 // important playback state visible even when the player window is not focused
@@ -156,18 +205,18 @@ void draw_menu_bar_status() {
         snprintf(meta, sizeof(meta), "vol %d%%", volume_percent);
     }
 
-    const float gap = 10.0f;
+    const float gap = theme::px(10.0f);
     const float state_width = ImGui::CalcTextSize(state_text).x;
     const float track_width = has_track ? ImGui::CalcTextSize(track_label).x : 0.0f;
     const float meta_width = ImGui::CalcTextSize(meta).x;
     const float total_width = state_width + (has_track ? gap + track_width : 0.0f) + gap + meta_width;
 
     const float available = ImGui::GetContentRegionAvail().x;
-    if (available < total_width + 24.0f) {
+    if (available < total_width + theme::px(24.0f)) {
         return;
     }
 
-    ImGui::SameLine(ImGui::GetCursorPosX() + available - total_width);
+    ImGui::SameLine(ImGui::GetCursorPosX() + available - total_width - theme::px(6.0f));
     ImGui::TextColored(state_color, "%s", state_text);
 
     if (has_track) {
@@ -395,10 +444,9 @@ void load_and_play_file(const track_t &track) {
 }
 
 void draw_file_system_window() {
-    const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 20, main_viewport->WorkPos.y + 20),
-                            ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(400, 600), ImGuiCond_FirstUseEver);
+    const ImVec2 window_size = default_window_size(400.0f, 600.0f);
+    ImGui::SetNextWindowPos(default_window_pos(20.0f, 20.0f, window_size), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(window_size, ImGuiCond_FirstUseEver);
     ImGui::Begin("Local File System", &app_state.show_file_system_window);
     static ImGuiTableFlags table_flags =
             ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
@@ -423,7 +471,7 @@ void draw_file_system_window() {
     if (ImGui::BeginTable("file_system", 2, table_flags)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoHide);
-        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 5.0f);
         ImGui::TableHeadersRow();
 
         if (app_state.new_root_dir != app_state.cur_root_dir) {
@@ -586,15 +634,18 @@ void draw_track_table(const std::vector<track_t> &tracks, const char *table_id, 
 
     if (ImGui::BeginTable(table_id, 5, table_flags)) {
         ImGui::TableSetupScrollFreeze(0, 1);
+        // The tag columns scale with the font; Title/Artist/Album share the
+        // remaining width so the table keeps working at narrow window sizes.
+        const float em = ImGui::GetFontSize();
         ImGui::TableSetupColumn(
             "#",
             ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortAscending |
-            ImGuiTableColumnFlags_DefaultSort, 44.0f);
+            ImGuiTableColumnFlags_DefaultSort, em * 2.8f);
         ImGui::TableSetupColumn("Title", ImGuiTableColumnFlags_WidthStretch, 3.0f);
-        ImGui::TableSetupColumn("Artist", ImGuiTableColumnFlags_WidthFixed, 160.0f);
-        ImGui::TableSetupColumn("Album", ImGuiTableColumnFlags_WidthFixed, 190.0f);
+        ImGui::TableSetupColumn("Artist", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+        ImGui::TableSetupColumn("Album", ImGuiTableColumnFlags_WidthStretch, 2.0f);
         ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed |
-                                        ImGuiTableColumnFlags_PreferSortDescending, 64.0f);
+                                        ImGuiTableColumnFlags_PreferSortDescending, em * 4.0f);
         ImGui::TableHeadersRow();
 
         if (tracks.empty()) {
@@ -615,10 +666,9 @@ void draw_media_view(std::filesystem::path path) {
         return;
     }
 
-    const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20),
-                            ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(760, 400), ImGuiCond_FirstUseEver);
+    const tracks_layout_t layout = default_tracks_layout();
+    ImGui::SetNextWindowPos(layout.media_pos, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(layout.media_size, ImGuiCond_FirstUseEver);
     ImGui::Begin("Media View", &app_state.show_media_view);
     draw_track_table(app_state.media_view_tracks, "media_view_tracks", false);
     ImGui::End();
@@ -629,10 +679,9 @@ void draw_media_view(std::filesystem::path path) {
  * */
 
 void draw_player_controls() {
-    const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 430),
-                            ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(760, 200), ImGuiCond_FirstUseEver);
+    const tracks_layout_t layout = default_tracks_layout();
+    ImGui::SetNextWindowPos(layout.player_pos, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(layout.player_size, ImGuiCond_FirstUseEver);
     ImGui::Begin("Player Control", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     const bool has_track = !app_state.playing_tracks.empty();
@@ -763,11 +812,11 @@ void draw_player_controls() {
     ImGui::Checkbox("Loop", &app_state.should_repeat_autoplay);
     ImGui::SetItemTooltip("Repeat the queue after the last track.");
 
-    ImGui::SameLine(0.0f, 16.0f);
+    ImGui::SameLine(0.0f, theme::px(16.0f));
     ImGui::AlignTextToFramePadding();
     ImGui::TextDisabled("VOL");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(120.0f);
+    ImGui::SetNextItemWidth(theme::px(120.0f));
     if (ImGui::SliderFloat("##volume", &app_state.volume, 0.0f, 1.0f, "")) {
         debug_log.AddLog("Volume: %f\n", app_state.volume);
     }
@@ -895,10 +944,9 @@ void draw_remote_browser() {
         app_state.should_rebuild_remote_browser = false;
     }
 
-    const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 20, main_viewport->WorkPos.y + 20),
-                            ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(400, 600), ImGuiCond_FirstUseEver);
+    const ImVec2 window_size = default_window_size(400.0f, 600.0f);
+    ImGui::SetNextWindowPos(default_window_pos(20.0f, 20.0f, window_size), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(window_size, ImGuiCond_FirstUseEver);
     ImGui::Begin("Remote Browser", &app_state.show_remote_browser);
 
     ImGuiTableFlags table_flags =
@@ -908,8 +956,8 @@ void draw_remote_browser() {
     if (ImGui::BeginTable("remote_browser", 3, table_flags)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoHide);
-        ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed, 56.0f);
-        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 64.0f);
+        ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 3.2f);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 4.2f);
         ImGui::TableHeadersRow();
         draw_remote_tree(app_state.artists);
         ImGui::EndTable();
@@ -949,10 +997,9 @@ void draw_remote_media_view() {
         build_remote_media_view(app_state.cur_album);
         debug_log.AddLog("[INFO]: Rebuilding remote media view\n");
     }
-    const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20),
-                            ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(760, 400), ImGuiCond_FirstUseEver);
+    const tracks_layout_t layout = default_tracks_layout();
+    ImGui::SetNextWindowPos(layout.media_pos, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(layout.media_size, ImGuiCond_FirstUseEver);
     ImGui::Begin("Remote Media View", &app_state.show_remote_media_view);
     draw_track_table(app_state.media_view_tracks, "remote_media_view_tracks", true);
     ImGui::End();
@@ -1085,17 +1132,18 @@ void draw_error_popup(VALIDATION_CODE err) {
         ImGui::Separator();
 
         // NOTE: https://github.com/ocornut/imgui/discussions/3862
-        // To set the button to be centered (the - 120 is the width of the button)
+        // To set the button to be centered (the button width is subtracted here)
         ImGuiStyle &style = ImGui::GetStyle();
+        const float button_width = theme::px(120.0f);
 
         float size = ImGui::CalcTextSize("OK").x + style.FramePadding.x * 2.0f;
         float avail = ImGui::GetContentRegionAvail().x;
 
-        float off = (avail - size - 120) * 0.5f;
+        float off = (avail - size - button_width) * 0.5f;
         if (off > 0.0f)
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + off);
 
-        if (ImGui::Button("OK", ImVec2(120, 0))) {
+        if (ImGui::Button("OK", ImVec2(button_width, 0))) {
             ImGui::CloseCurrentPopup();
             app_state.show_error_popup = false;
             app_state.last_error = OK;
@@ -1106,10 +1154,9 @@ void draw_error_popup(VALIDATION_CODE err) {
 }
 
 void draw_settings_menu() {
-    const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20),
-                            ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(500, 300), ImGuiCond_FirstUseEver);
+    const ImVec2 window_size = default_window_size(500.0f, 300.0f);
+    ImGui::SetNextWindowPos(default_window_pos(430.0f, 20.0f, window_size), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(window_size, ImGuiCond_FirstUseEver);
     ImGui::Begin("Server Settings", &app_state.show_server_settings);
 
     static char urlbuf[256] = "";
@@ -1184,12 +1231,20 @@ int main(int, char **) {
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
-    // Set up our SDL window with some flags
-    float main_scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
+    // Set up our SDL window with some flags. Start bigger than the old 1280x800
+    // defaults because the UI itself is now larger; clamp to the usable desktop
+    // so the window still fits on smaller displays.
+    const SDL_DisplayID primary_display = SDL_GetPrimaryDisplay();
+    float main_scale = SDL_GetDisplayContentScale(primary_display);
+    SDL_Rect usable_bounds{0, 0, 1920, 1080};
+    if (!SDL_GetDisplayUsableBounds(primary_display, &usable_bounds)) {
+        SDL_Log("SDL_GetDisplayUsableBounds failed: %s", SDL_GetError());
+    }
+    const int initial_width = (int) ImMin(1600.0f * main_scale, usable_bounds.w * 0.94f);
+    const int initial_height = (int) ImMin(1000.0f * main_scale, usable_bounds.h * 0.94f);
     SDL_WindowFlags window_flags =
             SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
-    SDL_Window *window = SDL_CreateWindow("ImMusic", (int) (1280 * main_scale), (int) (800 * main_scale),
-                                          window_flags);
+    SDL_Window *window = SDL_CreateWindow("ImMusic", initial_width, initial_height, window_flags);
     if (window == nullptr) {
         printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
         return 1;
@@ -1353,7 +1408,7 @@ int main(int, char **) {
 
         // * Simple log console copied from the examples in /include/imgui_demo.cpp
         if (app_state.show_debug_log) {
-            ImGui::SetNextWindowSize(ImVec2(500, 400), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(theme::px(500.0f), theme::px(400.0f)), ImGuiCond_FirstUseEver);
             debug_log.Draw("Debug Log", &app_state.show_debug_log);
         }
 

@@ -14,36 +14,131 @@
 #include <cstddef>
 
 namespace theme {
-    namespace color {
-        // Base surfaces, darkest -> lightest.
-        inline constexpr ImVec4 bg_deep = ImVec4(0.059f, 0.071f, 0.078f, 1.0f); // #0F1214
-        inline constexpr ImVec4 bg = ImVec4(0.078f, 0.090f, 0.102f, 1.0f); // #14171A
-        inline constexpr ImVec4 panel = ImVec4(0.102f, 0.118f, 0.133f, 1.0f); // #1A1E22
-        inline constexpr ImVec4 frame = ImVec4(0.125f, 0.145f, 0.165f, 1.0f); // #20252A
-        inline constexpr ImVec4 hover = ImVec4(0.165f, 0.188f, 0.212f, 1.0f); // #2A3036
-        inline constexpr ImVec4 active = ImVec4(0.204f, 0.235f, 0.267f, 1.0f); // #343C44
+    // ---------------------------------------------------------------------
+    // UI SCALE
+    // ---------------------------------------------------------------------
+    // The whole interface is authored in logical pixels at this scale. Change
+    // this single value to make text and controls larger/smaller; the display
+    // DPI scale is applied on top of it. Use theme::px() for any explicit size
+    // in UI code so it follows this value.
+    inline constexpr float kUiScale = 1.5f;
 
-        inline constexpr ImVec4 border = ImVec4(0.173f, 0.200f, 0.227f, 1.0f); // #2C333A
-        inline constexpr ImVec4 border_strong = ImVec4(0.231f, 0.267f, 0.302f, 1.0f); // #3B444D
+    // Base body font size in logical pixels (rendered at kUiScale * DPI).
+    inline constexpr float base_font_size = 14.0f;
+
+    // Build a color from an 0xRRGGBB value so palette entries can be copied
+    // straight from a color sheet. Optional alpha for overlays/tints.
+    constexpr ImVec4 hex(unsigned int rgb, float alpha = 1.0f) {
+        return ImVec4(static_cast<float>((rgb >> 16) & 0xFF) / 255.0f,
+                      static_cast<float>((rgb >> 8) & 0xFF) / 255.0f,
+                      static_cast<float>(rgb & 0xFF) / 255.0f,
+                      alpha);
+    }
+
+    // ---------------------------------------------------------------------
+    // PALETTE
+    // ---------------------------------------------------------------------
+    // Every color used by the app lives in this single table. When replacing
+    // the palette, only edit the values below; UI code refers to the semantic
+    // names in theme::color (bg, text, accent, ...).
+    //
+    // Roles:
+    //   surfaces  darkest -> lightest (bg_deep, bg, panel, frame, hover, active)
+    //   lines     quiet edge / emphasized edge (border, border_strong)
+    //   text      primary / metadata / unavailable (text, muted, disabled)
+    //   accent    interaction, focus and selection
+    //   playing   playback state only
+    //   error     failure messages only
+    struct palette_t {
+        ImVec4 bg_deep;
+        ImVec4 bg;
+        ImVec4 panel;
+        ImVec4 frame;
+        ImVec4 hover;
+        ImVec4 active;
+
+        ImVec4 border;
+        ImVec4 border_strong;
+
+        ImVec4 text;
+        ImVec4 muted;
+        ImVec4 disabled;
+
+        ImVec4 accent;
+        ImVec4 accent_hover;
+        ImVec4 accent_active;
+        ImVec4 playing;
+        ImVec4 error;
+
+        ImVec4 overlay;
+        ImVec4 overlay_strong;
+        ImVec4 row_alt;
+
+        ImVec4 transparent;
+    };
+
+    inline constexpr palette_t palette = {
+        // Surfaces, darkest -> lightest.
+        .bg_deep = hex(0x0F1214),
+        .bg = hex(0x14171A),
+        .panel = hex(0x1A1E22),
+        .frame = hex(0x20252A),
+        .hover = hex(0x2A3036),
+        .active = hex(0x343C44),
+
+        // Borders.
+        .border = hex(0x2C333A),
+        .border_strong = hex(0x3B444D),
 
         // Text hierarchy.
-        inline constexpr ImVec4 text = ImVec4(0.863f, 0.886f, 0.910f, 1.0f); // #DCE2E8
-        inline constexpr ImVec4 muted = ImVec4(0.596f, 0.635f, 0.675f, 1.0f); // #98A2AC
-        inline constexpr ImVec4 disabled = ImVec4(0.373f, 0.412f, 0.451f, 1.0f); // #5F6973
+        .text = hex(0xDCE2E8),
+        .muted = hex(0x98A2AC),
+        .disabled = hex(0x5F6973),
 
-        // Amber is the interaction/focus color. Green only means "playing".
-        inline constexpr ImVec4 accent = ImVec4(0.910f, 0.635f, 0.290f, 1.0f); // #E8A24A
-        inline constexpr ImVec4 accent_hover = ImVec4(0.949f, 0.725f, 0.408f, 1.0f); // #F2B968
-        inline constexpr ImVec4 accent_active = ImVec4(0.784f, 0.525f, 0.212f, 1.0f); // #C88636
-        inline constexpr ImVec4 playing = ImVec4(0.490f, 0.827f, 0.627f, 1.0f); // #7DD3A0
-        inline constexpr ImVec4 error = ImVec4(0.878f, 0.424f, 0.459f, 1.0f); // #E06C75
+        // Accent + states. Green only means "playing", red only means "error".
+        .accent = hex(0xE8A24A),
+        .accent_hover = hex(0xF2B968),
+        .accent_active = hex(0xC88636),
+        .playing = hex(0x7DD3A0),
+        .error = hex(0xE06C75),
 
-        inline constexpr ImVec4 transparent = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-        inline constexpr ImVec4 row_alt = ImVec4(1.0f, 1.0f, 1.0f, 0.018f);
+        // Dimming behind modal windows / inactive content.
+        .overlay = hex(0x000000, 0.55f),
+        .overlay_strong = hex(0x000000, 0.65f),
 
-        inline constexpr ImVec4 selection = ImVec4(0.910f, 0.635f, 0.290f, 0.18f);
-        inline constexpr ImVec4 selection_hovered = ImVec4(0.910f, 0.635f, 0.290f, 0.26f);
-        inline constexpr ImVec4 selection_active = ImVec4(0.910f, 0.635f, 0.290f, 0.34f);
+        // Zebra striping (very subtle lightening of text color).
+        .row_alt = hex(0xFFFFFF, 0.018f),
+
+        .transparent = ImVec4(0.0f, 0.0f, 0.0f, 0.0f),
+    };
+
+    // Stable semantic names used throughout the UI.
+    namespace color {
+        inline const ImVec4 &bg_deep = palette.bg_deep;
+        inline const ImVec4 &bg = palette.bg;
+        inline const ImVec4 &panel = palette.panel;
+        inline const ImVec4 &frame = palette.frame;
+        inline const ImVec4 &hover = palette.hover;
+        inline const ImVec4 &active = palette.active;
+
+        inline const ImVec4 &border = palette.border;
+        inline const ImVec4 &border_strong = palette.border_strong;
+
+        inline const ImVec4 &text = palette.text;
+        inline const ImVec4 &muted = palette.muted;
+        inline const ImVec4 &disabled = palette.disabled;
+
+        inline const ImVec4 &accent = palette.accent;
+        inline const ImVec4 &accent_hover = palette.accent_hover;
+        inline const ImVec4 &accent_active = palette.accent_active;
+        inline const ImVec4 &playing = palette.playing;
+        inline const ImVec4 &error = palette.error;
+
+        inline const ImVec4 &overlay = palette.overlay;
+        inline const ImVec4 &overlay_strong = palette.overlay_strong;
+        inline const ImVec4 &row_alt = palette.row_alt;
+
+        inline const ImVec4 &transparent = palette.transparent;
     }
 
     // Apply the full metric + color theme. dpi_scale is the display content
@@ -53,17 +148,24 @@ namespace theme {
     // Load the app font(s). Call once after creating the ImGui context.
     void load_fonts();
 
-    // Small text helpers so secondary metadata is visually consistent.
-    void text_muted(const char* fmt, ...) IM_FMTARGS(1);
+    // Total UI scale currently in effect (kUiScale * DPI).
+    float scale();
 
-    void text_dim(const char* fmt, ...) IM_FMTARGS(1);
+    // Convert a logical pixel value to actual pixels. Use this for explicit
+    // window sizes, column widths, gaps, etc. so they follow the UI scale.
+    float px(float logical_px);
+
+    // Small text helpers so secondary metadata is visually consistent.
+    void text_muted(const char *fmt, ...) IM_FMTARGS(1);
+
+    void text_dim(const char *fmt, ...) IM_FMTARGS(1);
 
     // Right-align a single line of text within the remaining content region.
     // Useful for table cells and for values pinned to the right edge.
-    void text_right_aligned(const ImVec4& color, const char* text);
+    void text_right_aligned(const ImVec4 &color, const char *text);
 
     // Format seconds as m:ss (or h:mm:ss). Always writes a valid C string.
-    void format_time(int total_seconds, char* out, size_t out_size);
+    void format_time(int total_seconds, char *out, size_t out_size);
 }
 
 #endif //IMMUSIC_THEME_H
