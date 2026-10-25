@@ -49,6 +49,9 @@ namespace theme {
     //   accent    interaction, focus and selection
     //   playing   playback state only
     //   error     failure messages only
+    // Roles mirror imgui-warm-palettes.md so the light theme can be dropped in
+    // later by replacing this table. Extra roles (disabled, error, highlights)
+    // are called out where the sheet does not define them.
     struct palette_t {
         ImVec4 bg_deep;
         ImVec4 bg;
@@ -68,6 +71,8 @@ namespace theme {
         ImVec4 accent_hover;
         ImVec4 accent_active;
         ImVec4 playing;
+        ImVec4 highlight;
+        ImVec4 info;
         ImVec4 error;
 
         ImVec4 overlay;
@@ -78,36 +83,39 @@ namespace theme {
     };
 
     inline constexpr palette_t palette = {
+        // Appalachia "Blue Ridge in October" (dark).
         // Surfaces, darkest -> lightest.
-        .bg_deep = hex(0x0F1214),
-        .bg = hex(0x14171A),
-        .panel = hex(0x1A1E22),
-        .frame = hex(0x20252A),
-        .hover = hex(0x2A3036),
-        .active = hex(0x343C44),
+        .bg_deep = hex(0x1E1A16), // window bg (also used as text on accent)
+        .bg = hex(0x1E1A16), // window bg
+        .panel = hex(0x28221C), // panel / child / menu bar / title bg
+        .frame = hex(0x332B22), // frame / input bg
+        .hover = hex(0x453A2C), // dry leaf litter
+        .active = hex(0x453A2C), // frame active shares hover per the mapping
 
         // Borders.
-        .border = hex(0x2C333A),
-        .border_strong = hex(0x3B444D),
+        .border = hex(0x4B3F31), // cabin timber
+        .border_strong = hex(0x5A4C3B), // derived: border lifted for emphasis
 
         // Text hierarchy.
-        .text = hex(0xDCE2E8),
-        .muted = hex(0x98A2AC),
-        .disabled = hex(0x5F6973),
+        .text = hex(0xE6D8BC), // parchment
+        .muted = hex(0x9C8F78), // woodsmoke
+        .disabled = hex(0x6F6554), // derived: muted dimmed toward window bg
 
-        // Accent + states. Green only means "playing", red only means "error".
-        .accent = hex(0xE8A24A),
-        .accent_hover = hex(0xF2B968),
-        .accent_active = hex(0xC88636),
-        .playing = hex(0x7DD3A0),
-        .error = hex(0xE06C75),
+        // Accents + states.
+        .accent = hex(0xC4622D), // maple: interaction / focus
+        .accent_hover = hex(0xD9773E), // derived: maple lightened ~10%
+        .accent_active = hex(0x7A8F4E), // moss: pressed states
+        .playing = hex(0x7A8F4E), // moss: playback / success only
+        .highlight = hex(0xD8A23A), // goldenrod: checkmarks / slider grabs
+        .info = hex(0x6F8799), // blue ridge haze: links / info
+        .error = hex(0xC9564A), // not in the sheet: warm brick for errors
 
-        // Dimming behind modal windows / inactive content.
-        .overlay = hex(0x000000, 0.55f),
-        .overlay_strong = hex(0x000000, 0.65f),
+        // Dimming behind modal windows / inactive content (window bg at alpha).
+        .overlay = hex(0x1E1A16, 0.50f),
+        .overlay_strong = hex(0x1E1A16, 0.65f),
 
         // Zebra striping (very subtle lightening of text color).
-        .row_alt = hex(0xFFFFFF, 0.018f),
+        .row_alt = hex(0xE6D8BC, 0.03f),
 
         .transparent = ImVec4(0.0f, 0.0f, 0.0f, 0.0f),
     };
@@ -132,6 +140,8 @@ namespace theme {
         inline const ImVec4 &accent_hover = palette.accent_hover;
         inline const ImVec4 &accent_active = palette.accent_active;
         inline const ImVec4 &playing = palette.playing;
+        inline const ImVec4 &highlight = palette.highlight;
+        inline const ImVec4 &info = palette.info;
         inline const ImVec4 &error = palette.error;
 
         inline const ImVec4 &overlay = palette.overlay;

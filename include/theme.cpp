@@ -83,7 +83,7 @@ namespace theme {
         style.Colors[ImGuiCol_Text] = color::text;
         style.Colors[ImGuiCol_TextDisabled] = color::muted;
         style.Colors[ImGuiCol_WindowBg] = color::bg;
-        style.Colors[ImGuiCol_ChildBg] = color::transparent;
+        style.Colors[ImGuiCol_ChildBg] = color::panel;
         style.Colors[ImGuiCol_PopupBg] = color::panel;
         style.Colors[ImGuiCol_Border] = color::border;
         style.Colors[ImGuiCol_BorderShadow] = color::transparent;
@@ -92,44 +92,44 @@ namespace theme {
         style.Colors[ImGuiCol_FrameBgHovered] = color::hover;
         style.Colors[ImGuiCol_FrameBgActive] = color::active;
 
-        style.Colors[ImGuiCol_TitleBg] = color::bg_deep;
+        style.Colors[ImGuiCol_TitleBg] = color::panel;
         style.Colors[ImGuiCol_TitleBgActive] = color::panel;
-        style.Colors[ImGuiCol_TitleBgCollapsed] = color::bg_deep;
-        style.Colors[ImGuiCol_MenuBarBg] = color::bg_deep;
+        style.Colors[ImGuiCol_TitleBgCollapsed] = color::panel;
+        style.Colors[ImGuiCol_MenuBarBg] = color::panel;
 
-        style.Colors[ImGuiCol_ScrollbarBg] = color::transparent;
-        style.Colors[ImGuiCol_ScrollbarGrab] = color::border_strong;
-        style.Colors[ImGuiCol_ScrollbarGrabHovered] = color::muted;
+        style.Colors[ImGuiCol_ScrollbarBg] = color::bg;
+        style.Colors[ImGuiCol_ScrollbarGrab] = color::border;
+        style.Colors[ImGuiCol_ScrollbarGrabHovered] = color::hover;
         style.Colors[ImGuiCol_ScrollbarGrabActive] = color::accent;
 
-        style.Colors[ImGuiCol_CheckMark] = color::accent;
-        style.Colors[ImGuiCol_SliderGrab] = color::accent;
-        style.Colors[ImGuiCol_SliderGrabActive] = color::accent_hover;
+        style.Colors[ImGuiCol_CheckMark] = color::highlight;
+        style.Colors[ImGuiCol_SliderGrab] = color::highlight;
+        style.Colors[ImGuiCol_SliderGrabActive] = color::accent_active;
 
         style.Colors[ImGuiCol_Button] = color::frame;
         style.Colors[ImGuiCol_ButtonHovered] = color::hover;
         style.Colors[ImGuiCol_ButtonActive] = color::active;
 
-        // Selection is the accent color at low alpha so changing the accent
-        // keeps every selection tint in sync.
+        // Selection tints derive from the primary accent so a palette swap
+        // keeps them in sync. HeaderActive uses moss, per the sheet mapping.
         style.Colors[ImGuiCol_Header] = with_alpha(color::accent, 0.18f);
         style.Colors[ImGuiCol_HeaderHovered] = with_alpha(color::accent, 0.26f);
-        style.Colors[ImGuiCol_HeaderActive] = with_alpha(color::accent, 0.34f);
+        style.Colors[ImGuiCol_HeaderActive] = with_alpha(color::accent_active, 0.28f);
 
         style.Colors[ImGuiCol_Separator] = color::border;
         style.Colors[ImGuiCol_SeparatorHovered] = color::accent;
         style.Colors[ImGuiCol_SeparatorActive] = color::accent;
 
-        style.Colors[ImGuiCol_ResizeGrip] = color::border;
-        style.Colors[ImGuiCol_ResizeGripHovered] = color::accent;
-        style.Colors[ImGuiCol_ResizeGripActive] = color::accent;
+        style.Colors[ImGuiCol_ResizeGrip] = with_alpha(color::accent, 0.25f);
+        style.Colors[ImGuiCol_ResizeGripHovered] = with_alpha(color::accent, 0.40f);
+        style.Colors[ImGuiCol_ResizeGripActive] = with_alpha(color::accent, 0.55f);
         style.Colors[ImGuiCol_InputTextCursor] = color::accent;
 
         style.Colors[ImGuiCol_TabHovered] = color::hover;
-        style.Colors[ImGuiCol_Tab] = color::bg_deep;
+        style.Colors[ImGuiCol_Tab] = color::bg;
         style.Colors[ImGuiCol_TabSelected] = color::panel;
         style.Colors[ImGuiCol_TabSelectedOverline] = color::accent;
-        style.Colors[ImGuiCol_TabDimmed] = color::bg_deep;
+        style.Colors[ImGuiCol_TabDimmed] = color::bg;
         style.Colors[ImGuiCol_TabDimmedSelected] = color::panel;
         style.Colors[ImGuiCol_TabDimmedSelectedOverline] = color::border_strong;
 
@@ -147,8 +147,8 @@ namespace theme {
         style.Colors[ImGuiCol_TableRowBg] = color::transparent;
         style.Colors[ImGuiCol_TableRowBgAlt] = color::row_alt;
 
-        style.Colors[ImGuiCol_TextLink] = color::accent;
-        style.Colors[ImGuiCol_TextSelectedBg] = with_alpha(color::accent, 0.34f);
+        style.Colors[ImGuiCol_TextLink] = color::info;
+        style.Colors[ImGuiCol_TextSelectedBg] = with_alpha(color::accent, 0.35f);
         style.Colors[ImGuiCol_TreeLines] = color::border_strong;
 
         style.Colors[ImGuiCol_DragDropTarget] = color::accent;
