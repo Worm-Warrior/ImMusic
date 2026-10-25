@@ -1125,7 +1125,9 @@ int main(int, char **) {
     io.ConfigDockingWithShift = true;
 
     // * Make this a font that handles special chars
+    // Set the tables => CellPadding to 6 or 8
     io.Fonts->AddFontFromFileTTF("../res/MPLUS1Code-Regular.ttf");
+    io.MouseDrawCursor = false;
 
     ImGui::StyleColorsDark();
 

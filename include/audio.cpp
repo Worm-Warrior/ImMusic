@@ -22,26 +22,33 @@ void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
         if (ctx.seek_req.load(std::memory_order_acquire)) {
             std::lock_guard lock(ctx.mutex);
 
-            //ctx.decode_EOF = false;
-
             const int64_t seconds = ctx.seek_seconds.load(std::memory_order_relaxed);
             const AVStream *st = ctx.format_context->streams[ctx.audio_stream_index];
 
             // All timestamps passed to avformat_seek_file() are in the time base of the
             // selected stream, not in AV_TIME_BASE units.
             const int64_t min_ts = st->start_time != AV_NOPTS_VALUE ? st->start_time : 0;
+
             int64_t max_ts;
             if (st->duration != AV_NOPTS_VALUE && st->duration > 0) {
+                // If the stream duration is valid, then we make the max_ts = start time + duration.
                 max_ts = av_sat_add64(min_ts, st->duration);
             } else if (ctx.format_context->duration != AV_NOPTS_VALUE) {
+                // If the stream duration is not valid then we need to use the format_context duration
+                // This is by default in AV_TIME_BASE_Q units, not the stream untis,
+                // so we need to rescale to get the right unit of time.
                 max_ts = av_sat_add64(min_ts, av_rescale_q(ctx.format_context->duration, AV_TIME_BASE_Q,
                                                            st->time_base));
             } else {
+                // If all else fails, make it INT_MAX
                 max_ts = INT64_MAX;
             }
 
+            // The target is the start time + scaled units
+            // Seconds * AV_TIME_BASE => Get time in base unit => Rescale to get stream units.
             int64_t target_ts = av_sat_add64(min_ts, av_rescale_q(seconds * AV_TIME_BASE, AV_TIME_BASE_Q,
                                                                   st->time_base));
+
             // The duration used by the UI (taglib) does not always match FFmpeg's, so
             // clamp the target into the range the demuxer considers seekable.
             target_ts = av_clip64(target_ts, min_ts, max_ts);
@@ -65,8 +72,6 @@ void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
                 back_off_ts = av_sat_add64(back_off_ts, back_off_ts);
             }
 
-            printf("Min: %ld - Target: %ld - Max: %ld\n", min_ts, target_ts, max_ts);
-
             if (ret >= 0) {
                 SDL_ClearAudioStream(ctx.audio_stream);
                 avcodec_flush_buffers(ctx.codec_context);
@@ -77,7 +82,7 @@ void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
                 // requested when the seek had to back off from the end of the file.
                 const double actual_seconds = (target_ts - min_ts) * av_q2d(st->time_base);
                 ctx.played_samples.store(
-                    (int64_t) llround(actual_seconds * ctx.codec_context->sample_rate),
+                    llround(actual_seconds * ctx.codec_context->sample_rate),
                     std::memory_order_release
                 );
                 app_state.just_seeked.store(true, std::memory_order_release);
