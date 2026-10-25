@@ -582,10 +582,9 @@ void draw_player_controls() {
     char time_label[32];
     snprintf(time_label, sizeof(time_label), "%d:%02d", minutes, seconds);
 
-    // BUG: This currently does not work because the seek_max does not match with the ffmpeg duration.
-    // This needs to be fixed so that either it truncates to the end of file in audio.c,
-    // or we fix it here in main and assign the right info.
-    // I would prefer the later over the former as it is more correct.
+    // The slider range comes from taglib, which may not exactly match FFmpeg's
+    // duration. audio.cpp clamps the request and backs off if the demuxer cannot
+    // seek that close to the end of the file.
     if (ImGui::SliderInt("Time", &app_state.seek_time, app_state.seek_min, app_state.seek_max, time_label)) {
         app_state.is_seeking = true;
     } else if (ImGui::IsItemDeactivated() && app_state.is_seeking != false) {

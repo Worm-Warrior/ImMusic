@@ -95,9 +95,6 @@ void fetch_all_artists(fetch_request req, fetch_system& net) {
     }
 
     printf("[INFO]: Added %lu artists\n", f_res.artists.size());
- @ 0x7fa3286042c0] invalid sync code
-[flac @ 0x7fa3286042c0] invalid frame header
-[flac @ 0x7fa3286042c0] decode_frame() failed
     f_res.req = std::move(req);
 
     {
@@ -147,9 +144,7 @@ void fetch_artists_albums(fetch_request req, fetch_system& net) {
         a.album_name = std::string(name);
         a.track_count = album["songCount"].get_int64();
 
-        f_res.albums.push_back(a); @ 0x7fa3286042c0] invalid sync code
-[flac @ 0x7fa3286042c0] invalid frame header
-[flac @ 0x7fa3286042c0] decode_frame() failed
+        f_res.albums.push_back(a);
     }
 
     f_res.req = std::move(req);

@@ -4,6 +4,8 @@
 #include "audio.h"
 
 #include <SDL3/SDL_oldnames.h>
+#include <cstdint>
+#include <ffmpeg/libavutil/avutil.h>
 
 #include "app_state.h"
 #include "debug_log.h"
@@ -25,31 +27,64 @@ void decode_thread(audio_context_t &ctx, app_state_t &app_state) {
             const int64_t seconds = ctx.seek_seconds.load(std::memory_order_relaxed);
             const AVStream *st = ctx.format_context->streams[ctx.audio_stream_index];
 
-            int64_t ts = av_rescale_q(
-                static_cast<int64_t>(seconds) * AV_TIME_BASE,
-                AV_TIME_BASE_Q,
-                st->time_base
-            );
+            // All timestamps passed to avformat_seek_file() are in the time base of the
+            // selected stream, not in AV_TIME_BASE units.
+            const int64_t min_ts = st->start_time != AV_NOPTS_VALUE ? st->start_time : 0;
+            int64_t max_ts;
+            if (st->duration != AV_NOPTS_VALUE && st->duration > 0) {
+                max_ts = av_sat_add64(min_ts, st->duration);
+            } else if (ctx.format_context->duration != AV_NOPTS_VALUE) {
+                max_ts = av_sat_add64(min_ts, av_rescale_q(ctx.format_context->duration, AV_TIME_BASE_Q,
+                                                           st->time_base));
+            } else {
+                max_ts = INT64_MAX;
+            }
 
-            //TODO: If the seeking frame is more than the max it returns an error
-            // We want it to just to truncate to the end?
-            // Maybe fix the duration on the track info so it is matching, but that would require calling out to ffmpeg in main I think.
-            if (av_seek_frame(ctx.format_context,
-                              ctx.audio_stream_index,
-                              ts,
-                              AVSEEK_FLAG_BACKWARD) >= 0) {
+            int64_t target_ts = av_sat_add64(min_ts, av_rescale_q(seconds * AV_TIME_BASE, AV_TIME_BASE_Q,
+                                                                  st->time_base));
+            // The duration used by the UI (taglib) does not always match FFmpeg's, so
+            // clamp the target into the range the demuxer considers seekable.
+            target_ts = av_clip64(target_ts, min_ts, max_ts);
+
+            int ret = avformat_seek_file(ctx.format_context, ctx.audio_stream_index, min_ts, target_ts,
+                                         max_ts, 0);
+
+            // Demuxers that seek with a binary search (FLAC being the common case) can fail
+            // close to the end of a file: the final frame has no following frame header to
+            // delimit it. Back off by increasingly large steps until the demuxer accepts a
+            // timestamp instead of failing the whole seek.
+            int64_t seek_ts = target_ts;
+            int64_t back_off_ts = av_rescale_q(AV_TIME_BASE, AV_TIME_BASE_Q, st->time_base);
+            while (ret < 0 && seek_ts > min_ts) {
+                seek_ts = seek_ts > av_sat_add64(min_ts, back_off_ts) ? seek_ts - back_off_ts : min_ts;
+                ret = avformat_seek_file(ctx.format_context, ctx.audio_stream_index, min_ts, seek_ts,
+                                         max_ts, 0);
+                if (ret >= 0) {
+                    target_ts = seek_ts;
+                }
+                back_off_ts = av_sat_add64(back_off_ts, back_off_ts);
+            }
+
+            printf("Min: %ld - Target: %ld - Max: %ld\n", min_ts, target_ts, max_ts);
+
+            if (ret >= 0) {
                 SDL_ClearAudioStream(ctx.audio_stream);
                 avcodec_flush_buffers(ctx.codec_context);
                 //SDL_FlushAudioStream(ctx.audio_stream); // this is used to signal end of input.
                 swr_init(ctx.swr_context);
 
+                // Store the position we actually landed on. It can be slightly earlier than
+                // requested when the seek had to back off from the end of the file.
+                const double actual_seconds = (target_ts - min_ts) * av_q2d(st->time_base);
                 ctx.played_samples.store(
-                    (int64_t) seconds * ctx.codec_context->sample_rate,
+                    (int64_t) llround(actual_seconds * ctx.codec_context->sample_rate),
                     std::memory_order_release
                 );
                 app_state.just_seeked.store(true, std::memory_order_release);
             } else {
-                fprintf(stderr, "error in av_seek_frame()\n");
+                char err_buf[AV_ERROR_MAX_STRING_SIZE];
+                av_strerror(ret, err_buf, sizeof(err_buf));
+                fprintf(stderr, "Seek failed: %s (code: %d)\n", err_buf, ret);
             }
 
             ctx.seek_req.store(false, std::memory_order_release);
