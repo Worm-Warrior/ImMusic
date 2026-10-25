@@ -20,6 +20,7 @@
 #include "include/app_state.h"
 #include "external/imgui_internal.h"
 #include "include/audio.h"
+#include "include/theme.h"
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 #include <SDL3/SDL_opengles2.h>
 #else
@@ -124,9 +125,115 @@ void check_network() {
     }
 }
 
+// * === MENU BAR ===
+// The right side of the menu bar is a permanent status line. It keeps the
+// important playback state visible even when the player window is not focused
+// or has been scrolled out of the way.
+void draw_menu_bar_status() {
+    const bool has_track = !app_state.playing_tracks.empty();
+    const bool is_paused = has_track && audio_context.is_paused;
+
+    const char* state_text = !has_track ? "IDLE" : (is_paused ? "PAUSED" : "PLAYING");
+    const ImVec4 state_color = !has_track
+                                   ? theme::color::disabled
+                                   : (is_paused ? theme::color::accent : theme::color::playing);
+
+    char track_label[384] = "";
+    if (has_track) {
+        snprintf(track_label, sizeof(track_label), "%s | %s",
+                 app_state.cur_selected_track.artist_name.c_str(),
+                 app_state.cur_selected_track.track_name.c_str());
+    }
+
+    char meta[64];
+    const int volume_percent = static_cast<int>(app_state.volume * 100.0f);
+    if (has_track) {
+        snprintf(meta, sizeof(meta), "%u/%zu  vol %d%%",
+                 app_state.cur_track_index + 1,
+                 app_state.playing_tracks.size(),
+                 volume_percent);
+    } else {
+        snprintf(meta, sizeof(meta), "vol %d%%", volume_percent);
+    }
+
+    const float gap = 10.0f;
+    const float state_width = ImGui::CalcTextSize(state_text).x;
+    const float track_width = has_track ? ImGui::CalcTextSize(track_label).x : 0.0f;
+    const float meta_width = ImGui::CalcTextSize(meta).x;
+    const float total_width = state_width + (has_track ? gap + track_width : 0.0f) + gap + meta_width;
+
+    const float available = ImGui::GetContentRegionAvail().x;
+    if (available < total_width + 24.0f) {
+        return;
+    }
+
+    ImGui::SameLine(ImGui::GetCursorPosX() + available - total_width);
+    ImGui::TextColored(state_color, "%s", state_text);
+
+    if (has_track) {
+        ImGui::SameLine(0.0f, gap);
+        theme::text_muted("%s", track_label);
+    }
+
+    ImGui::SameLine(0.0f, gap);
+    theme::text_muted("%s", meta);
+}
+
+void draw_menu_bar() {
+    if (!ImGui::BeginMainMenuBar()) {
+        return;
+    }
+
+    if (ImGui::BeginMenu("File")) {
+        if (ImGui::MenuItem("Change root directory")) {
+            // Holy moly this is so simple and just works like this, thank God for OSS and platform layers!
+            const char* path = tinyfd_selectFolderDialog("Select Music Folder", app_state.cur_root_dir.c_str());
+            if (path) {
+                app_state.new_root_dir = std::string(path);
+            }
+        }
+
+        ImGui::MenuItem("Server settings", nullptr, &app_state.show_server_settings);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Exit")) {
+            app_state.is_running = false;
+        }
+
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("View")) {
+        if (ImGui::MenuItem("Local file system", nullptr, app_state.show_file_system_window)) {
+            app_state.show_file_system_window = !app_state.show_file_system_window;
+            if (app_state.show_file_system_window) {
+                app_state.show_remote_browser = false;
+            }
+        }
+
+        if (ImGui::MenuItem("Remote browser", nullptr, app_state.show_remote_browser)) {
+            app_state.show_remote_browser = !app_state.show_remote_browser;
+            if (app_state.show_remote_browser) {
+                app_state.show_file_system_window = false;
+            }
+        }
+
+        ImGui::Separator();
+        ImGui::MenuItem("Debug log", "F2", &app_state.show_debug_log);
+        ImGui::MenuItem("Frametime", "F3", &app_state.show_frametime);
+        ImGui::MenuItem("Dear ImGui demo", "F1", &app_state.show_demo_window);
+
+        ImGui::EndMenu();
+    }
+
+    draw_menu_bar_status();
+    ImGui::EndMainMenuBar();
+}
+
 // This makes it so that the whole window is one big dock space so we get the windows to act the way we want.
 // ? Should I move this to another file or is it fine here?
 void draw_dockspace() {
+    draw_menu_bar();
+
     ImGuiWindowFlags flags =
             ImGuiWindowFlags_NoDocking |
             ImGuiWindowFlags_NoCollapse |
@@ -140,47 +247,12 @@ void draw_dockspace() {
     ImGui::SetNextWindowSize(vp->WorkSize);
     ImGui::SetNextWindowViewport(vp->ID);
 
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, theme::color::transparent);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 
     ImGui::Begin("Main View", nullptr, flags);
-
-    // Main menu bar logic goes here.
-    if (ImGui::BeginMainMenuBar()) {
-        if (ImGui::BeginMenu("Menu")) {
-            if (ImGui::MenuItem("Change root directory")) {
-                // Holy moly this is so simple and just works like this, thank God for OSS and platform layers!
-                const char *path = tinyfd_selectFolderDialog("Select Music Folder",
-                                                             app_state.cur_root_dir.c_str());
-                if (path) {
-                    app_state.new_root_dir = std::string(path);
-                }
-            }
-
-            ImGui::MenuItem("Server Settings", NULL, &app_state.show_server_settings);
-
-
-            if (ImGui::MenuItem("Search")) {
-            }
-            if (ImGui::MenuItem("Local File System View", NULL, &app_state.show_file_system_window)) {
-                if (app_state.show_remote_browser) {
-                    app_state.show_remote_browser = !app_state.show_remote_browser;
-                }
-            }
-            if (ImGui::MenuItem("Remote View", NULL, &app_state.show_remote_browser)) {
-                if (app_state.show_file_system_window) {
-                    app_state.show_file_system_window = !app_state.show_file_system_window;
-                }
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Exit")) { app_state.is_running = false; }
-
-            ImGui::EndMenu();
-        }
-        ImGui::EndMainMenuBar();
-    }
     ImGui::DockSpace(ImGui::GetID("MainDockspace"), ImVec2(0, 0));
     ImGui::End();
 
@@ -232,7 +304,8 @@ void draw_node(int node_idx, const file_system_cache_t &cache) {
         flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet;
     }
 
-    ImGui::TableNextRow();
+    ImGui::TableNextRow(ImGuiTableRowFlags_None,
+                        ImGui::GetTextLineHeight() + ImGui::GetStyle().CellPadding.y * 2.0f);
     ImGui::TableNextColumn();
 
     bool open = ImGui::TreeNodeEx(node.name.c_str(), flags);
@@ -244,7 +317,7 @@ void draw_node(int node_idx, const file_system_cache_t &cache) {
     }
 
     ImGui::TableNextColumn();
-    ImGui::Text("Folder");
+    theme::text_muted("Folder");
 
     if (open) {
         for (int i: node.child_indexes) {
@@ -328,8 +401,8 @@ void draw_file_system_window() {
     ImGui::SetNextWindowSize(ImVec2(400, 600), ImGuiCond_FirstUseEver);
     ImGui::Begin("Local File System", &app_state.show_file_system_window);
     static ImGuiTableFlags table_flags =
-            ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
-            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
+            ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_PadOuterX;
 
     // Handle if we have no root dir, ask the user to provide a music folder to have as root
     if (app_state.cur_root_dir.empty() && app_state.new_root_dir.empty()) {
@@ -348,8 +421,9 @@ void draw_file_system_window() {
     }
 
     if (ImGui::BeginTable("file_system", 2, table_flags)) {
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide);
-        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoHide);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 80.0f);
         ImGui::TableHeadersRow();
 
         if (app_state.new_root_dir != app_state.cur_root_dir) {
@@ -428,54 +502,110 @@ void build_media_view(std::filesystem::path path) {
     app_state.cur_media_folder = path;
 }
 
-void display_tracks(const std::vector<track_t> &tracks) {
+void display_tracks(const std::vector<track_t> &tracks, bool remote) {
+    const float row_height = ImGui::GetTextLineHeight() + ImGui::GetStyle().CellPadding.y * 2.0f;
+
     ImGuiListClipper clipper;
-    clipper.Begin(tracks.size());
+    clipper.Begin(static_cast<int>(tracks.size()), row_height);
     while (clipper.Step()) {
         for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
             const track_t &t = tracks[i];
-            bool is_selected = (app_state.cur_selected_track.path == t.path);
+            const bool is_selected = remote
+                                         ? (!t.song_id.empty() && app_state.cur_selected_track.song_id == t.song_id)
+                                         : (!t.path.empty() && app_state.cur_selected_track.path == t.path);
+            const bool is_playing = is_selected && !app_state.playing_tracks.empty() && !audio_context.is_paused;
 
-
-            ImGui::TableNextRow();
+            ImGui::TableNextRow(ImGuiTableRowFlags_None, row_height);
             ImGui::TableSetColumnIndex(0);
 
-            if ((ImGui::Selectable(("##" + t.path.string()).c_str(), is_selected,
-                                   ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) &&
-                ImGui::IsMouseDoubleClicked(0)) {
+            ImGui::PushID(i);
+            const bool row_clicked = ImGui::Selectable(
+                "##row", is_selected,
+                ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
+
+            if (remote) {
+                ImGui::SetItemTooltip("%s\n%s | %s", t.track_name.c_str(), t.artist_name.c_str(),
+                                      t.album_name.c_str());
+            } else {
+                ImGui::SetItemTooltip("%s\n%s | %s\n%s", t.track_name.c_str(), t.artist_name.c_str(),
+                                      t.album_name.c_str(), t.path.c_str());
+            }
+            ImGui::PopID();
+
+            if (row_clicked && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                 app_state.playing_tracks = app_state.media_view_tracks;
                 // Update the state so we have the right index(es).
                 app_state.cur_selected_track = t;
                 uint32_t index = 0;
                 for (const track_t &track: app_state.playing_tracks) {
-                    if (track.path == t.path) {
+                    const bool same_track = remote ? track.song_id == t.song_id : track.path == t.path;
+                    if (same_track) {
                         break;
                     }
                     index++;
                 }
                 app_state.cur_track_index = index;
                 load_and_play_file(t);
-                app_state.seek_max = t.duration.count();
-                debug_log.AddLog("[INFO]: cur_selected_track: %s at index %d\n", t.path.c_str(), index);
+                app_state.seek_max = static_cast<int>(t.duration.count());
+                debug_log.AddLog("[INFO]: cur_selected_track: %s at index %u\n",
+                                 remote ? t.song_id.c_str() : t.path.c_str(), index);
             }
+
+            // Track number doubles as the playback marker: green ">" while
+            // playing, amber when selected, muted otherwise.
             ImGui::SameLine();
-            ImGui::Text("%d", t.track_number);
+            char track_label[32];
+            snprintf(track_label, sizeof(track_label), "%s%u", is_playing ? ">" : " ", t.track_number);
+            const ImVec4 &track_color = is_playing
+                                            ? theme::color::playing
+                                            : (is_selected ? theme::color::accent : theme::color::muted);
+            theme::text_right_aligned(track_color, track_label);
+
             ImGui::TableSetColumnIndex(1);
-            ImGui::Text("%s", t.track_name.c_str());
+            ImGui::TextUnformatted(t.track_name.c_str());
+
             ImGui::TableSetColumnIndex(2);
-            ImGui::Text("%s", t.artist_name.c_str());
+            theme::text_muted("%s", t.artist_name.c_str());
+
             ImGui::TableSetColumnIndex(3);
-            ImGui::Text("%s", t.album_name.c_str());
+            theme::text_muted("%s", t.album_name.c_str());
+
             ImGui::TableSetColumnIndex(4);
-
-            auto dur = t.duration;
-
-            auto mm = duration_cast<std::chrono::minutes>(dur);
-            auto ss = dur - mm;
-            ImGui::Text("%02lld:%02lld",
-                        static_cast<long long>(mm.count()),
-                        static_cast<long long>(ss.count()));
+            char duration[32];
+            theme::format_time(static_cast<int>(t.duration.count()), duration, sizeof(duration));
+            theme::text_right_aligned(theme::color::muted, duration);
         }
+    }
+}
+
+void draw_track_table(const std::vector<track_t> &tracks, const char *table_id, bool remote) {
+    const ImGuiTableFlags table_flags =
+            ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_Resizable |
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_Hideable | ImGuiTableFlags_Sortable |
+            ImGuiTableFlags_ScrollY | ImGuiTableFlags_PadOuterX;
+
+    if (ImGui::BeginTable(table_id, 5, table_flags)) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn(
+            "#",
+            ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortAscending |
+            ImGuiTableColumnFlags_DefaultSort, 44.0f);
+        ImGui::TableSetupColumn("Title", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+        ImGui::TableSetupColumn("Artist", ImGuiTableColumnFlags_WidthFixed, 160.0f);
+        ImGui::TableSetupColumn("Album", ImGuiTableColumnFlags_WidthFixed, 190.0f);
+        ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed |
+                                        ImGuiTableColumnFlags_PreferSortDescending, 64.0f);
+        ImGui::TableHeadersRow();
+
+        if (tracks.empty()) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            theme::text_muted(remote ? "No tracks in this album." : "No tracks in this folder.");
+        } else {
+            display_tracks(tracks, remote);
+        }
+
+        ImGui::EndTable();
     }
 }
 
@@ -488,26 +618,9 @@ void draw_media_view(std::filesystem::path path) {
     const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20),
                             ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(760, 400), ImGuiCond_FirstUseEver);
     ImGui::Begin("Media View", &app_state.show_media_view);
-    ImGuiTableFlags media_table_flags =
-            ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
-            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable |
-            ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY;
-
-    if (ImGui::BeginTable("media_view", 5, media_table_flags)) {
-        ImGui::TableSetupColumn(
-            "Track",
-            ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortAscending |
-            ImGuiTableColumnFlags_DefaultSort, 80.0f);
-        ImGui::TableSetupColumn("Title", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Artist", ImGuiTableColumnFlags_WidthFixed);
-        ImGui::TableSetupColumn("Album", ImGuiTableColumnFlags_WidthFixed);
-        ImGui::TableSetupColumn("Duration", ImGuiTableColumnFlags_WidthFixed);
-        ImGui::TableHeadersRow();
-        display_tracks(app_state.media_view_tracks);
-        ImGui::EndTable();
-    }
+    draw_track_table(app_state.media_view_tracks, "media_view_tracks", false);
     ImGui::End();
 }
 
@@ -519,17 +632,77 @@ void draw_player_controls() {
     const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 430),
                             ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(600, 200), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Player Control");
-    if (!app_state.playing_tracks.empty()) {
-        ImGui::LabelText("##track_info_text", "%s | %s | %s", app_state.cur_selected_track.track_name.c_str(),
-                         app_state.cur_selected_track.artist_name.c_str(),
-                         app_state.cur_selected_track.album_name.c_str());
-    } else {
-        ImGui::LabelText("##no_track_text", "No Track Playing");
+    ImGui::SetNextWindowSize(ImVec2(760, 200), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Player Control", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
+    const bool has_track = !app_state.playing_tracks.empty();
+    const track_t &track = app_state.cur_selected_track;
+
+    ImGui::TextDisabled("NOW PLAYING");
+    if (has_track) {
+        char position[32];
+        snprintf(position, sizeof(position), "%u / %zu", app_state.cur_track_index + 1,
+                 app_state.playing_tracks.size());
+        ImGui::SameLine();
+        theme::text_right_aligned(theme::color::disabled, position);
     }
 
-    if (ImGui::Button("Prev")) {
+    if (has_track) {
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.12f);
+        ImGui::TextUnformatted(track.track_name.c_str());
+        ImGui::PopFont();
+        if (!track.path.empty()) {
+            ImGui::SetItemTooltip("%s", track.path.c_str());
+        }
+        theme::text_muted("%s | %s", track.artist_name.c_str(), track.album_name.c_str());
+    } else {
+        theme::text_muted("Nothing playing. Double-click a track to start.");
+    }
+
+    ImGui::Separator();
+
+    char elapsed[32];
+    char total[32];
+    theme::format_time(app_state.seek_time, elapsed, sizeof(elapsed));
+    theme::format_time(app_state.seek_max, total, sizeof(total));
+
+    // The slider range comes from taglib, which may not exactly match FFmpeg's
+    // duration. audio.cpp clamps the request and backs off if the demuxer cannot
+    // seek that close to the end of the file.
+    const bool can_seek = has_track && app_state.seek_max > 0;
+    if (can_seek) {
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::SliderInt("##seek", &app_state.seek_time, app_state.seek_min, app_state.seek_max, "")) {
+            app_state.is_seeking = true;
+        } else if (ImGui::IsItemDeactivated() && app_state.is_seeking != false) {
+            debug_log.AddLog("Seeking released at: %d\n", app_state.seek_time);
+            app_state.is_seeking = false;
+            app_state.seek_queued = true;
+
+            // * This is here because if we don't delay by a frame we can get garbage, so delay a frame.
+            // ! This does not work and still looks bad, idk really what to do about it !
+            app_state.just_seeked.exchange(true);
+            audio_context.seek_seconds.store(app_state.seek_time, std::memory_order_relaxed);
+            audio_context.seek_req.store(true, std::memory_order_release);
+            audio_context.decode_EOF.store(false, std::memory_order_release);
+        }
+    } else {
+        // An empty, non-interactive bar keeps the layout stable before the
+        // first track is loaded. SliderInt cannot be used here: an integer
+        // range of 0..1 would render as a half-filled amber bar.
+        ImGui::ProgressBar(0.0f, ImVec2(-1.0f, ImGui::GetFrameHeight()), "");
+    }
+
+    theme::text_muted("%s", elapsed);
+    ImGui::SameLine();
+    theme::text_right_aligned(theme::color::muted, total);
+
+    const float frame_height = ImGui::GetFrameHeight();
+    const float prev_next_width = frame_height * 1.6f;
+    const float play_width = frame_height * 3.4f;
+
+    ImGui::BeginDisabled(!has_track);
+    if (ImGui::Button("<<##prev", ImVec2(prev_next_width, 0.0f))) {
         if (app_state.cur_track_index - 1 < app_state.playing_tracks.size()) {
             app_state.cur_track_index--;
             app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
@@ -543,22 +716,33 @@ void draw_player_controls() {
                              app_state.cur_selected_track.track_name.c_str());
         }
     }
+    ImGui::SetItemTooltip("Previous track");
 
     ImGui::SameLine();
-    if (audio_context.is_paused) {
-        if (ImGui::Button("Play###PlayPause")) {
-            debug_log.AddLog("Pressed Play\n");
-            toggle_play_pause(audio_context);
-        }
-    } else {
-        if (ImGui::Button("Pause###PlayPause")) {
-            debug_log.AddLog("Pressed Pause\n");
-            toggle_play_pause(audio_context);
-        }
+
+    // The transport action is the only "filled" button in the app, so it is
+    // immediately obvious where playback is controlled. It stays neutral while
+    // the queue is empty so it does not look clickable.
+    if (has_track) {
+        ImGui::PushStyleColor(ImGuiCol_Button, theme::color::accent);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::color::accent_hover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, theme::color::accent_active);
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::color::bg_deep);
     }
+    const char *play_label =
+        (!has_track || audio_context.is_paused) ? "Play###PlayPause" : "Pause###PlayPause";
+    if (ImGui::Button(play_label, ImVec2(play_width, 0.0f))) {
+        debug_log.AddLog(audio_context.is_paused ? "Pressed Play\n" : "Pressed Pause\n");
+        toggle_play_pause(audio_context);
+    }
+    if (has_track) {
+        ImGui::PopStyleColor(4);
+    }
+    ImGui::SetItemTooltip(audio_context.is_paused ? "Resume playback" : "Pause playback");
 
     ImGui::SameLine();
-    if (ImGui::Button("Next")) {
+
+    if (ImGui::Button(">>##next", ImVec2(prev_next_width, 0.0f))) {
         if (app_state.cur_track_index + 1 < app_state.playing_tracks.size()) {
             app_state.cur_track_index++;
             app_state.cur_selected_track = app_state.playing_tracks[app_state.cur_track_index];
@@ -572,40 +756,28 @@ void draw_player_controls() {
                              app_state.cur_selected_track.track_name.c_str());
         }
     }
+    ImGui::SetItemTooltip("Next track");
+    ImGui::EndDisabled();
 
     ImGui::SameLine();
-    if (ImGui::Checkbox("Autoplay Loop", &app_state.should_repeat_autoplay)) {
-    }
+    ImGui::Checkbox("Loop", &app_state.should_repeat_autoplay);
+    ImGui::SetItemTooltip("Repeat the queue after the last track.");
 
-    const int minutes = app_state.seek_time / 60;
-    const int seconds = app_state.seek_time % 60;
-    char time_label[32];
-    snprintf(time_label, sizeof(time_label), "%d:%02d", minutes, seconds);
-
-    // The slider range comes from taglib, which may not exactly match FFmpeg's
-    // duration. audio.cpp clamps the request and backs off if the demuxer cannot
-    // seek that close to the end of the file.
-    if (ImGui::SliderInt("Time", &app_state.seek_time, app_state.seek_min, app_state.seek_max, time_label)) {
-        app_state.is_seeking = true;
-    } else if (ImGui::IsItemDeactivated() && app_state.is_seeking != false) {
-        debug_log.AddLog("Seeking released at: %d\n", app_state.seek_time);
-        app_state.is_seeking = false;
-        app_state.seek_queued = true;
-
-        // * This is here because if we don't delay by a frame we can get garbage, so delay a frame.
-        // ! This does not work and still looks bad, idk really what to do about it !
-        app_state.just_seeked.exchange(true);
-        audio_context.seek_seconds.store(app_state.seek_time, std::memory_order_relaxed);
-        audio_context.seek_req.store(true, std::memory_order_release);
-        audio_context.decode_EOF.store(false, std::memory_order_release);
-    }
-    if (ImGui::SliderFloat("Volume", &app_state.volume, 0, 1, "%.2f")) {
+    ImGui::SameLine(0.0f, 16.0f);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("VOL");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(120.0f);
+    if (ImGui::SliderFloat("##volume", &app_state.volume, 0.0f, 1.0f, "")) {
         debug_log.AddLog("Volume: %f\n", app_state.volume);
     }
+    ImGui::SetItemTooltip("Output volume: %d%%", static_cast<int>(app_state.volume * 100.0f));
+
     ImGui::End();
     // TODO: make this update only if the volume has changed.
-    SDL_SetAudioDeviceGain(SDL_GetAudioStreamDevice(audio_context.audio_stream),
-                           app_state.volume);
+    if (audio_context.audio_stream) {
+        SDL_SetAudioDeviceGain(SDL_GetAudioStreamDevice(audio_context.audio_stream), app_state.volume);
+    }
 }
 
 
@@ -659,9 +831,10 @@ void fetch_artist_albums(artist_node &artist) {
 void draw_remote_tree(std::vector<artist_node> &artists) {
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_OpenOnDoubleClick |
                                ImGuiTreeNodeFlags_OpenOnArrow;
+    const float row_height = ImGui::GetTextLineHeight() + ImGui::GetStyle().CellPadding.y * 2.0f;
 
     for (auto &a: artists) {
-        ImGui::TableNextRow();
+        ImGui::TableNextRow(ImGuiTableRowFlags_None, row_height);
         ImGui::TableNextColumn();
 
         bool open = ImGui::TreeNodeEx(a.artist_name.c_str(), flags);
@@ -672,9 +845,9 @@ void draw_remote_tree(std::vector<artist_node> &artists) {
         }
 
         ImGui::TableNextColumn();
-        ImGui::Text("%d", a.album_count);
+        theme::text_muted("%d", a.album_count);
         ImGui::TableNextColumn();
-        ImGui::Text("Artist");
+        theme::text_muted("Artist");
 
         if (open) {
             switch (a.status) {
@@ -684,13 +857,13 @@ void draw_remote_tree(std::vector<artist_node> &artists) {
                     a.status = LOADING;
                     break;
                 case LOADING:
-                    ImGui::TableNextRow();
+                    ImGui::TableNextRow(ImGuiTableRowFlags_None, row_height);
                     ImGui::TableNextColumn();
-                    ImGui::Text("Loading...");
+                    theme::text_dim("Loading...");
                     break;
                 case READY:
                     for (auto &album: a.albums) {
-                        ImGui::TableNextRow();
+                        ImGui::TableNextRow(ImGuiTableRowFlags_None, row_height);
                         ImGui::TableNextColumn();
                         ImGui::TreeNodeEx(album.album_name.c_str(),
                                           ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet |
@@ -703,9 +876,9 @@ void draw_remote_tree(std::vector<artist_node> &artists) {
                             app_state.show_media_view = false;
                         }
                         ImGui::TableNextColumn();
-                        ImGui::Text("%d", album.track_count);
+                        theme::text_muted("%d", album.track_count);
                         ImGui::TableNextColumn();
-                        ImGui::Text("Album");
+                        theme::text_muted("Album");
                     }
                     break;
             }
@@ -729,16 +902,15 @@ void draw_remote_browser() {
     ImGui::Begin("Remote Browser", &app_state.show_remote_browser);
 
     ImGuiTableFlags table_flags =
-            ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
-            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody;
+            ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_PadOuterX;
 
     if (ImGui::BeginTable("remote_browser", 3, table_flags)) {
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide);
-        ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed);
-        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoHide);
+        ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed, 56.0f);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 64.0f);
         ImGui::TableHeadersRow();
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
         draw_remote_tree(app_state.artists);
         ImGui::EndTable();
     }
@@ -746,57 +918,6 @@ void draw_remote_browser() {
 }
 
 // * === REMOTE MEDIA VIEW ===
-
-void display_remote_tracks(const std::vector<track_t> &tracks) {
-    ImGuiListClipper clipper;
-    clipper.Begin(tracks.size());
-    while (clipper.Step()) {
-        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
-            const track_t &t = tracks[i];
-            bool is_selected = (app_state.cur_selected_track.song_id == t.song_id);
-
-
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-
-            if ((ImGui::Selectable(("##" + t.song_id).c_str(), is_selected,
-                                   ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) &&
-                ImGui::IsMouseDoubleClicked(0)) {
-                app_state.playing_tracks = app_state.media_view_tracks;
-                // Update the state so we have the right index(es).
-                app_state.cur_selected_track = t;
-                uint32_t index = 0;
-                for (const track_t &track: app_state.playing_tracks) {
-                    if (track.song_id == t.song_id) {
-                        break;
-                    }
-                    index++;
-                }
-                app_state.cur_track_index = index;
-                load_and_play_file(t);
-                app_state.seek_max = t.duration.count();
-                debug_log.AddLog("[INFO]: cur_selected_track: %s at index %d\n", t.path.c_str(), index);
-            }
-            ImGui::SameLine();
-            ImGui::Text("%d", t.track_number);
-            ImGui::TableSetColumnIndex(1);
-            ImGui::Text("%s", t.track_name.c_str());
-            ImGui::TableSetColumnIndex(2);
-            ImGui::Text("%s", t.artist_name.c_str());
-            ImGui::TableSetColumnIndex(3);
-            ImGui::Text("%s", t.album_name.c_str());
-            ImGui::TableSetColumnIndex(4);
-
-            auto dur = t.duration;
-
-            auto mm = duration_cast<std::chrono::minutes>(dur);
-            auto ss = dur - mm;
-            ImGui::Text("%02lld:%02lld",
-                        static_cast<long long>(mm.count()),
-                        static_cast<long long>(ss.count()));
-        }
-    }
-}
 
 void build_remote_media_view(std::string album_id) {
     fetch_request r;
@@ -831,26 +952,9 @@ void draw_remote_media_view() {
     const ImGuiViewport *main_viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 430, main_viewport->WorkPos.y + 20),
                             ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(760, 400), ImGuiCond_FirstUseEver);
     ImGui::Begin("Remote Media View", &app_state.show_remote_media_view);
-    ImGuiTableFlags media_table_flags =
-            ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable |
-            ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Hideable |
-            ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY;
-
-    if (ImGui::BeginTable("media_view_remote", 5, media_table_flags)) {
-        ImGui::TableSetupColumn(
-            "Track",
-            ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortAscending |
-            ImGuiTableColumnFlags_DefaultSort, 80.0f);
-        ImGui::TableSetupColumn("Title", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Artist", ImGuiTableColumnFlags_WidthFixed);
-        ImGui::TableSetupColumn("Album", ImGuiTableColumnFlags_WidthFixed);
-        ImGui::TableSetupColumn("Duration", ImGuiTableColumnFlags_WidthFixed);
-        ImGui::TableHeadersRow();
-        display_remote_tracks(app_state.media_view_tracks);
-        ImGui::EndTable();
-    }
+    draw_track_table(app_state.media_view_tracks, "remote_media_view_tracks", true);
     ImGui::End();
 }
 
@@ -976,7 +1080,7 @@ void draw_error_popup(VALIDATION_CODE err) {
                 break;
         }
 
-        ImGui::Text("%s", error_text.c_str());
+        ImGui::TextColored(theme::color::error, "%s", error_text.c_str());
         ImGui::SetItemDefaultFocus();
         ImGui::Separator();
 
@@ -1013,7 +1117,8 @@ void draw_settings_menu() {
     static char password[32] = "";
 
 
-    ImGui::TextWrapped("CAUTION:\nAll of this info is saved in plain text in settings.txt!");
+    ImGui::TextColored(theme::color::accent, "CAUTION:");
+    ImGui::TextWrapped("All of this info is saved in plain text in settings.txt!");
     ImGui::InputTextWithHint("Server url", "ex: http://192.168.4.165:4535", urlbuf, IM_COUNTOF(urlbuf));
     ImGui::InputText("Username", username, IM_COUNTOF(username));
     ImGui::InputTextWithHint("Password", "THIS IS STORED IN PLAIN TEXT", password, IM_COUNTOF(password),
@@ -1124,32 +1229,20 @@ int main(int, char **) {
     io.ConfigDockingNoDockingOver = true;
     io.ConfigDockingWithShift = true;
 
-    // * Make this a font that handles special chars
-    // Set the tables => CellPadding to 6 or 8
-    io.Fonts->AddFontFromFileTTF("../res/MPLUS1Code-Regular.ttf");
+    // * Typography + theme. Keeping these in one place makes it easy to tune
+    // * density, colors and typography later without hunting through the UI code.
+    theme::apply(main_scale);
+    theme::load_fonts();
     io.MouseDrawCursor = false;
 
-    ImGui::StyleColorsDark();
-
-    ImGuiStyle &style = ImGui::GetStyle();
-    style.ScaleAllSizes(main_scale);
-    style.FontScaleDpi = main_scale;
-
     check_settings_file();
-
-    // Make the bg invisible
-    style.Colors[ImGuiCol_DockingEmptyBg] = ImVec4(0, 0, 0, 0);
 
     ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    bool show_demo_window = false;
-    bool show_log = false;
-    app_state.show_frametime = false;
-
     bool window_focused = true;
 
-    ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.15f, 1.0f);
+    const ImVec4 clear_color = theme::color::bg;
     glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
     glClear(GL_COLOR_BUFFER_BIT);
 
@@ -1202,16 +1295,16 @@ int main(int, char **) {
 
         // Draw the main dock space that will be the base for the app
         draw_dockspace();
-        if (show_demo_window) {
-            ImGui::ShowDemoWindow(&show_demo_window);
+        if (app_state.show_demo_window) {
+            ImGui::ShowDemoWindow(&app_state.show_demo_window);
         }
 
         if (ImGui::IsKeyReleased(ImGuiKey_F1)) {
-            show_demo_window = !show_demo_window;
+            app_state.show_demo_window = !app_state.show_demo_window;
         }
 
         if (ImGui::IsKeyReleased(ImGuiKey_F2)) {
-            show_log = !show_log;
+            app_state.show_debug_log = !app_state.show_debug_log;
         }
 
         if (ImGui::IsKeyReleased(ImGuiKey_F3)) {
@@ -1259,9 +1352,9 @@ int main(int, char **) {
         }
 
         // * Simple log console copied from the examples in /include/imgui_demo.cpp
-        if (show_log) {
+        if (app_state.show_debug_log) {
             ImGui::SetNextWindowSize(ImVec2(500, 400), ImGuiCond_FirstUseEver);
-            debug_log.Draw("Debug Log", &show_log);
+            debug_log.Draw("Debug Log", &app_state.show_debug_log);
         }
 
         // * Show frametime window

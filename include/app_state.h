@@ -64,6 +64,8 @@ struct app_state_t {
     bool show_remote_browser = false;
     bool show_remote_media_view = false;
     bool show_frametime = false;
+    bool show_debug_log = false;
+    bool show_demo_window = false;
 
     bool should_rebuild_remote_browser = true;
 };
